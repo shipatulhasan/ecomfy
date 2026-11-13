@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { productCopy } from "@/lib/config/product";
 import { cn } from "@/lib/utils";
 import { StarRating } from "../star-rating";
+import { ReviewsLink } from "./reviews-link";
 
-/** "★★★★★ 4 Review • SKU: 2,51,594". The review count links to the PDP reviews. */
+/** "★★★★★ 4 Review • SKU: 2,51,594". The review count opens the PDP's Customer Feedback tab. */
 export function RatingSummary({
   slug,
   rating,
@@ -22,12 +22,12 @@ export function RatingSummary({
     <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 text-copy", className)}>
       <div className="flex items-center gap-1">
         <StarRating rating={rating} starClassName="size-4.5" />
-        <Link
-          href={`/product/${slug}#reviews`}
+        <ReviewsLink
+          slug={slug}
           className="tap-target flex items-center text-text-body hover:text-foreground hover:underline"
         >
           {reviewCount} {productCopy.review}
-        </Link>
+        </ReviewsLink>
       </div>
       {sku && (
         <>

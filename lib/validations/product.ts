@@ -58,6 +58,11 @@ export const reviewSchema = z.object({
   body: z.string().trim().min(3, "Tell us a bit more").max(2000),
 });
 
+export const reviewPageSchema = z.object({
+  productId: z.string().min(1),
+  page: z.number().int().min(2).max(500),
+});
+
 export type CategoryInput = z.infer<typeof categorySchema>;
 export type ProductInput = z.infer<typeof productSchema>;
 export type ReviewInput = z.infer<typeof reviewSchema>;

@@ -13,7 +13,7 @@ import { resolve } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hashPassword } from "better-auth/crypto";
 import { PrismaClient, type Prisma } from "../lib/generated/prisma/client";
-import { categories, chineseCabbageReviews, products, slugify } from "./seed-data";
+import { categories, chineseCabbageReviews, products, REVIEW_BODIES, slugify, type SeedProduct, type SeedVariant } from "./seed-data";
 
 if (process.env.NODE_ENV === "production") {
   throw new Error("Refusing to seed a production database.");
@@ -32,15 +32,24 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) })
 type ManifestEntry = { url: string; width: number; height: number };
 const manifest = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../designs/assets/manifest.json"), "utf8"),
-) as Record<"products" | "categories" | "banners", Record<string, ManifestEntry>>;
+) as Record<"products" | "categories" | "banners" | "avatars", Record<string, ManifestEntry>>;
 
-function asset(group: "products" | "categories", slug: string): ManifestEntry {
+function asset(group: "products" | "categories" | "banners" | "avatars", slug: string): ManifestEntry {
   const entry = manifest[group][slug];
   if (!entry) throw new Error(`No image for ${group}/${slug} in designs/assets/manifest.json — add it to scripts/crop-assets.ts`);
   return entry;
 }
 
 const cents = (dollars: number) => Math.round(dollars * 100);
+
+/** PDP Additional Information rows for products that don't list their own. */
+function defaultAttributes(p: SeedProduct, v: SeedVariant) {
+  const rows: { name: string; value: string }[] = [];
+  if (v.weightGrams) rows.push({ name: "Weight", value: v.weightGrams >= 1000 ? `${v.weightGrams / 1000} kg` : `${v.weightGrams} g` });
+  if (p.color) rows.push({ name: "Color", value: p.color });
+  if (p.productType) rows.push({ name: "Type", value: p.productType });
+  return rows;
+}
 const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000);
 
 // ───────────────────────── users ─────────────────────────
@@ -52,6 +61,7 @@ type SeedUser = {
   role?: "ADMIN" | "CUSTOMER";
   status?: "ACTIVE" | "INACTIVE" | "VIP";
   phone?: string;
+  image?: string;
   createdDaysAgo?: number;
 };
 
@@ -63,16 +73,17 @@ const users: SeedUser[] = [
   { key: "john", name: "John Doe", email: "john.doe@ecomfy.test", phone: "+1234567890", createdDaysAgo: 320 },
   { key: "jane", name: "Jane Smith", email: "jane.smith@ecomfy.test", phone: "+1234567890", status: "INACTIVE", createdDaysAgo: 280 },
   { key: "emily", name: "Emily Davis", email: "emily.davis@ecomfy.test", phone: "+1234567890", status: "VIP", createdDaysAgo: 500 },
-  { key: "kristin", name: "Kristin Watson", email: "kristin.watson@ecomfy.test", createdDaysAgo: 200 },
+  // PDP reviewers: avatars cropped from the Customer Feedback PNG (Jane Cooper has the placeholder).
+  { key: "kristin", name: "Kristin Watson", email: "kristin.watson@ecomfy.test", image: asset("avatars", "kristin-watson").url, createdDaysAgo: 200 },
   { key: "janec", name: "Jane Cooper", email: "jane.cooper@ecomfy.test", createdDaysAgo: 190 },
-  { key: "jacob", name: "Jacob Jones", email: "jacob.jones@ecomfy.test", createdDaysAgo: 150 },
-  { key: "ralph", name: "Ralph Edwards", email: "ralph.edwards@ecomfy.test", createdDaysAgo: 120 },
+  { key: "jacob", name: "Jacob Jones", email: "jacob.jones@ecomfy.test", image: asset("avatars", "jacob-jones").url, createdDaysAgo: 150 },
+  { key: "ralph", name: "Ralph Edwards", email: "ralph.edwards@ecomfy.test", image: asset("avatars", "ralph-edwards").url, createdDaysAgo: 120 },
 ];
 
 async function reset() {
   // Table names are the Prisma model names (no @@map).
   await prisma.$executeRawUnsafe(`
-    TRUNCATE "OrderItem", "Order", "CartItem", "Cart", "Wishlist", "Review",
+    TRUNCATE "OrderItem", "Order", "CartItem", "Cart", "Wishlist", "Review", "ProductAttribute",
              "ProductImage", "Variant", "Product", "Category", "Address", "Coupon",
              "Session", "Account", "Verification", "User"
     RESTART IDENTITY CASCADE`);
@@ -94,6 +105,7 @@ async function seedUsers() {
         role: u.role ?? "CUSTOMER",
         status: u.status ?? "ACTIVE",
         phone: u.phone,
+        image: u.image,
         createdAt,
         accounts: {
           create: { id: randomUUID(), accountId: id, providerId: "credential", password: hash, createdAt },
@@ -134,6 +146,11 @@ async function seedCatalog() {
         brand: p.brand,
         productType: p.productType,
         tags: p.tags ?? [],
+        videoUrl: p.videoUrl,
+        videoPosterUrl: p.videoUrl ? asset("banners", "pdp-video").url : null,
+        attributes: {
+          create: (p.attributes ?? defaultAttributes(p, defaultVariant)).map((a, sortOrder) => ({ ...a, sortOrder })),
+        },
         isFeatured: p.isFeatured ?? false,
         priceCents: cents(defaultVariant.price), // denormalized for Shop sort/filter
         dealEndsAt: p.dealDays ? new Date(Date.now() + p.dealDays * 86_400_000) : null,
@@ -349,7 +366,8 @@ async function main() {
       productId: catalog[slugify(p.name)]!.id,
       userId: u[reviewers[i % reviewers.length]!]!,
       rating,
-      body: "Fresh and exactly as described.",
+      body: REVIEW_BODIES[i % REVIEW_BODIES.length]!,
+      createdAt: daysAgo(2 + i * 9),
     })),
   );
   await prisma.review.createMany({ data: extra });

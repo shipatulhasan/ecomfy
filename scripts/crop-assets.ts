@@ -359,6 +359,43 @@ const icons: Spec[] = [
   ["package", "629:3586"],
 ].map(([slug, node]) => ({ slug: slug!, png: HOME, node: node!, rect: CARD_IMAGE.full }));
 
+// PDP tabs (Products_Details_*.png, Product_Detail_Customer_Feedback.png). The
+// metadata nests these under "Product Detail" (y 347) with mixed frames, so the
+// boxes are given absolutely (1x px on the 1920 screen).
+const AI = "Products_Details_Additional Info.png";
+const FB = "Product_Detail_Customer_Feedback.png";
+
+// Descriptions / Additional Info video poster (536×300). The page draws the play button.
+const pdpBanners: Spec[] = [
+  {
+    slug: "pdp-video",
+    png: AI,
+    node: "531:13216",
+    abs: { x: 1084, y: 993, w: 536, h: 300 },
+    rect: CARD_IMAGE.full,
+    clean: [{ box: [240, 122, 56, 56] }],
+  },
+];
+
+// "64% Discount" / "100% Organic" highlight icons (32×32).
+const pdpIcons: Spec[] = [
+  { slug: "pdp-discount", png: AI, node: "531:13224", abs: { x: 1103, y: 1346, w: 32, h: 33 }, rect: CARD_IMAGE.full },
+  { slug: "pdp-organic", png: AI, node: "531:13234", abs: { x: 1371, y: 1346, w: 32, h: 33 }, rect: CARD_IMAGE.full },
+];
+
+// Customer Feedback reviewer avatars (41×41; Jane Cooper has the placeholder icon, drawn live).
+const pdpAvatars: Spec[] = [
+  ["kristin-watson", "531:14273", 1003],
+  ["jacob-jones", "531:14326", 1273],
+  ["ralph-edwards", "531:14350", 1387],
+].map(([slug, node, y]) => ({
+  slug: slug as string,
+  png: FB,
+  node: node as string,
+  abs: { x: 300, y: y as number, w: 41, h: 41 },
+  rect: CARD_IMAGE.full,
+}));
+
 // ───────────────────────── processing ─────────────────────────
 
 const pngCache = new Map<string, Buffer>();
@@ -611,14 +648,14 @@ async function main() {
   const groups = [
     ["products", products, "photo"],
     ["categories", categories, "photo"],
-    ["banners", banners, "banner"],
+    ["banners", [...banners, ...pdpBanners], "banner"],
     ["blog", blog, "banner"],
-    ["avatars", avatars, "banner"],
+    ["avatars", [...avatars, ...pdpAvatars], "banner"],
     ["logos", logos, "banner"],
     ["brands", brands, "banner"],
     ["instagram", instagram, "banner"],
     ["payments", payments, "banner"],
-    ["icons", icons, "banner"],
+    ["icons", [...icons, ...pdpIcons], "banner"],
   ] as const satisfies readonly (readonly [AssetGroup, Spec[], "photo" | "banner"])[];
 
   for (const [dir, specs, mode] of groups) {

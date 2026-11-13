@@ -54,7 +54,7 @@ export function ProductInfo({
         <ShareButtons url={url} title={product.name} image={image} />
       </div>
       {product.shortDescription && (
-        <p className="mt-4 text-copy text-muted-foreground">{product.shortDescription}</p>
+        <p className="mt-4 text-copy text-muted-foreground laptop:max-w-142">{product.shortDescription}</p>
       )}
 
       <div

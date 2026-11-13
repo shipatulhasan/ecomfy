@@ -137,3 +137,31 @@ export async function getFeaturedProducts(limit = 5) {
   });
   return toCards(rows);
 }
+
+/**
+ * PDP → Related Products: the most-reviewed products of the same category, topped
+ * up from the rest of the catalog when the category has fewer than `limit`.
+ */
+export async function getRelatedProducts(productId: string, categorySlug: string, limit = 4) {
+  "use cache";
+  cacheTag(CacheTags.products, CacheTags.productsInCategory(categorySlug));
+  cacheLife("hours");
+
+  const order = [{ reviewCount: "desc" }, { ratingAvg: "desc" }, { createdAt: "asc" }] satisfies Prisma.ProductOrderByWithRelationInput[];
+  const same = await prisma.product.findMany({
+    where: { status: "ACTIVE", id: { not: productId }, category: { slug: categorySlug } },
+    orderBy: order,
+    take: limit,
+    select: productCardSelect,
+  });
+  const others =
+    same.length < limit
+      ? await prisma.product.findMany({
+          where: { status: "ACTIVE", id: { notIn: [productId, ...same.map((p) => p.id)] } },
+          orderBy: order,
+          take: limit - same.length,
+          select: productCardSelect,
+        })
+      : [];
+  return toCards([...same, ...others]);
+}

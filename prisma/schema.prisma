@@ -179,11 +179,13 @@ model Product {
   slug             String        @unique // added: URL segment
   code             String        @unique // admin Product List id ("021231")
   shortDescription String? // PDP summary under price
-  description      String // PDP "Descriptions" tab
+  /// PDP "Descriptions" tab. HTML (p, ul/ol/li, strong, em, a, h3/h4), sanitized on read (lib/rich-text.ts).
+  description      String
   brand            String? // PDP "Brand"
   productType      String? // PDP Additional Info "Type" (e.g. Organic)
   tags             String[] // PDP "Tag"
   videoUrl         String? // PDP Descriptions tab video
+  videoPosterUrl   String? // added: poster image for the video (PDP Descriptions / Additional Info)
   isFeatured       Boolean       @default(false) // Home "Featured Products"
   dealEndsAt       DateTime? // Home "Hot Deals" countdown
   status           ProductStatus @default(ACTIVE) // added: draft/archive without deleting
@@ -199,6 +201,7 @@ model Product {
 
   variants     Variant[]
   images       ProductImage[]
+  attributes   ProductAttribute[]
   reviews      Review[]
   wishlistedBy Wishlist[]
 
@@ -240,6 +243,19 @@ model ProductImage {
   position  Int     @default(0) // added: gallery thumbnail order
 
   @@index([productId])
+}
+
+/// PDP "Additional Information" rows (Weight, Color, Type, …). Category, Stock Status
+/// and Tags are computed from the product, not stored here.
+model ProductAttribute {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String // "Weight"
+  value     String // "03"
+  sortOrder Int     @default(0)
+
+  @@index([productId, sortOrder])
 }
 
 model Review {
