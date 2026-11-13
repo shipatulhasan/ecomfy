@@ -23,8 +23,9 @@ export async function QuickViewContent({ slug }: { slug: Promise<string> }) {
 
   return (
     <ProductPurchaseProvider
-      product={{ id: product.id, slug: product.slug, name: product.name }}
+      product={{ id: product.id, slug: product.slug, name: product.name, image: product.images[0] ?? null }}
       variants={product.variants}
+      surface="quick-view"
     >
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain laptop:overflow-hidden">
         <QuickViewLayout

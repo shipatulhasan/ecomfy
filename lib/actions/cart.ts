@@ -1,71 +1,120 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
+import { refresh } from "next/cache";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth-guards";
-import { readGuestCartToken, writeGuestCartToken } from "@/lib/cart-cookie";
-import { getCartSummary, type CartSummary } from "@/lib/queries/user-state";
-import { addToCartSchema } from "@/lib/validations/cart";
+import { addVariantToCart } from "@/lib/cart/mutations";
+import { findCartId, resolveCartOwner } from "@/lib/cart/owner";
+import { couponMinimumProblem, maxLineQuantity, type CartView } from "@/lib/cart/pricing";
+import { couponAvailabilityProblem, getCart } from "@/lib/queries/cart";
+import {
+  addToCartSchema,
+  couponSchema,
+  emptySchema,
+  removeItemSchema,
+  updateQuantitySchema,
+} from "@/lib/validations/cart";
 import { ActionError, type ActionResult } from "./result";
 import { runAction } from "./safe-action";
 
 /**
- * Add a variant to the visitor's cart and return the new header summary.
+ * Cart mutations. Every action returns the whole recomputed cart (prices, stock
+ * and totals from the DB), which the client store adopts, and calls `refresh()`
+ * so server-rendered cart views re-render too.
  *
- * Auth: public by design — signed-out visitors get a guest cart (httpOnly cookie
- * token, `Cart.guestToken`). The session is still resolved here, never trusted
- * from the client: a signed-in user always writes to their own cart.
+ * Auth: public by design. Signed-out visitors get a guest cart (httpOnly cookie
+ * token, `Cart.guestToken`). The owner is resolved here from the session/cookie,
+ * never from input, and line ids are only matched inside the owner's cart, so a
+ * forged id can't touch someone else's cart.
  */
-export async function addToCart(input: unknown): Promise<ActionResult<CartSummary>> {
+
+async function done(owner?: Awaited<ReturnType<typeof resolveCartOwner>>): Promise<CartView> {
+  refresh();
+  return getCart(owner);
+}
+
+/** The owner's cart id or a shopper-facing error. */
+async function requireCart() {
+  const owner = await resolveCartOwner();
+  const cartId = await findCartId(owner);
+  if (!owner || !cartId) throw new ActionError("Your cart is empty.");
+  return { owner, cartId };
+}
+
+export async function addToCart(input: unknown): Promise<ActionResult<CartView>> {
   return runAction(addToCartSchema, input, async ({ variantId, quantity }) => {
-    const variant = await prisma.variant.findUnique({
-      where: { id: variantId },
-      select: { id: true, stock: true, product: { select: { status: true } } },
-    });
-    if (!variant || variant.product.status !== "ACTIVE") {
-      throw new ActionError("This product is no longer available.");
-    }
-    if (variant.stock <= 0) throw new ActionError("Sorry, this product is out of stock.");
+    const owner = await addVariantToCart(variantId, quantity);
+    return done(owner);
+  });
+}
 
-    const user = await getCurrentUser();
-    let cartId: string;
-    let owner: { userId: string } | { guestToken: string };
-    if (user) {
-      const cart = await prisma.cart.upsert({
-        where: { userId: user.id },
-        create: { userId: user.id },
-        update: {},
-        select: { id: true },
-      });
-      cartId = cart.id;
-      owner = { userId: user.id };
+export async function updateQuantity(input: unknown): Promise<ActionResult<CartView>> {
+  return runAction(updateQuantitySchema, input, async ({ lineId, quantity }) => {
+    const { owner, cartId } = await requireCart();
+    const line = await prisma.cartItem.findFirst({
+      where: { id: lineId, cartId },
+      select: { id: true, variant: { select: { stock: true } } },
+    });
+    if (!line) throw new ActionError("That item is no longer in your cart.");
+
+    const next = Math.min(quantity, maxLineQuantity(line.variant.stock));
+    if (next <= 0) {
+      if (quantity > 0) throw new ActionError("This item is out of stock. Remove it to continue.");
+      await prisma.cartItem.delete({ where: { id: line.id } });
     } else {
-      const existing = await readGuestCartToken();
-      const cart = existing
-        ? await prisma.cart.findUnique({ where: { guestToken: existing }, select: { id: true } })
-        : null;
-      if (cart && existing) {
-        cartId = cart.id;
-        owner = { guestToken: existing };
-      } else {
-        const guestToken = randomUUID();
-        cartId = (await prisma.cart.create({ data: { guestToken }, select: { id: true } })).id;
-        await writeGuestCartToken(guestToken);
-        owner = { guestToken };
-      }
+      await prisma.cartItem.update({ where: { id: line.id }, data: { quantity: next } });
     }
+    return done(owner);
+  });
+}
 
-    const line = await prisma.cartItem.findUnique({
-      where: { cartId_variantId: { cartId, variantId } },
-      select: { quantity: true },
-    });
-    const next = Math.min(variant.stock, (line?.quantity ?? 0) + quantity);
-    await prisma.cartItem.upsert({
-      where: { cartId_variantId: { cartId, variantId } },
-      create: { cartId, variantId, quantity: next },
-      update: { quantity: next },
-    });
+export type RemovedLine = { variantId: string; quantity: number };
 
-    return getCartSummary(owner);
+/** Removes a line and returns what was removed, so the client can offer "Undo" (addToCart). */
+export async function removeItem(input: unknown): Promise<ActionResult<{ cart: CartView; removed: RemovedLine | null }>> {
+  return runAction(removeItemSchema, input, async ({ lineId }) => {
+    const { owner, cartId } = await requireCart();
+    const line = await prisma.cartItem.findFirst({
+      where: { id: lineId, cartId },
+      select: { id: true, variantId: true, quantity: true },
+    });
+    if (line) await prisma.cartItem.delete({ where: { id: line.id } });
+    return { cart: await done(owner), removed: line ? { variantId: line.variantId, quantity: line.quantity } : null };
+  });
+}
+
+export async function clearCart(input?: unknown): Promise<ActionResult<CartView>> {
+  return runAction(emptySchema, input, async () => {
+    const { owner, cartId } = await requireCart();
+    await prisma.$transaction([
+      prisma.cartItem.deleteMany({ where: { cartId } }),
+      prisma.cart.update({ where: { id: cartId }, data: { couponId: null } }),
+    ]);
+    return done(owner);
+  });
+}
+
+export async function applyCoupon(input: unknown): Promise<ActionResult<CartView>> {
+  return runAction(couponSchema, input, async ({ code }) => {
+    const { owner, cartId } = await requireCart();
+    const coupon = await prisma.coupon.findUnique({ where: { code } });
+    if (!coupon) throw new ActionError("Invalid coupon code");
+    const unavailable = couponAvailabilityProblem(coupon);
+    if (unavailable) throw new ActionError(unavailable);
+
+    const cart = await getCart(owner);
+    if (cart.lines.length === 0) throw new ActionError("Your cart is empty.");
+    const minimum = couponMinimumProblem(coupon, cart.totals.subtotalCents);
+    if (minimum) throw new ActionError(minimum);
+
+    await prisma.cart.update({ where: { id: cartId }, data: { couponId: coupon.id } });
+    return done(owner);
+  });
+}
+
+export async function removeCoupon(input?: unknown): Promise<ActionResult<CartView>> {
+  return runAction(emptySchema, input, async () => {
+    const { owner, cartId } = await requireCart();
+    await prisma.cart.update({ where: { id: cartId }, data: { couponId: null } });
+    return done(owner);
   });
 }

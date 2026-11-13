@@ -24,13 +24,16 @@ export function ShareButtons({
   url,
   title,
   image,
+  label = productCopy.share,
   className,
 }: {
-  /** Absolute product URL (/product/[slug]). */
+  /** Absolute URL to share (/product/[slug], /wishlist). */
   url: string;
   title: string;
   /** Absolute image URL (Pinterest). */
   image?: string;
+  /** Row label ("Share item:" on products, "Share:" on the wishlist). */
+  label?: string;
   className?: string;
 }) {
   const canShare = useSyncExternalStore(noopSubscribe, hasNativeShare, () => false);
@@ -78,7 +81,7 @@ export function ShareButtons({
         </button>
       )}
       <div className={cn("items-center gap-2.5", canShare ? "hidden laptop:flex" : "flex")}>
-        <span className="text-copy text-text-body">{productCopy.share}</span>
+        <span className="text-copy text-text-body">{label}</span>
         <ul className="flex items-center gap-1.25">
           {links.map((l, i) => (
             <li key={l.network}>

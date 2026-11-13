@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { Suspense } from "react";
 import { cn } from "@/lib/utils";
 import { CartCountBadge, isActive } from "../header-client";
-import { useShopState } from "../shop-state";
+import { useCart } from "../cart/cart-provider";
 
 type Tab = { label: string; href: string; icon: LucideIcon; also?: readonly string[] };
 
@@ -50,7 +50,7 @@ function ActiveBottomNav() {
 }
 
 function BottomNavBar({ pathname }: { pathname: string | null }) {
-  const { ready, cart } = useShopState();
+  const { ready, cart } = useCart();
 
   return (
     <nav
@@ -68,7 +68,7 @@ function BottomNavBar({ pathname }: { pathname: string | null }) {
                 href={href}
                 prefetch
                 aria-current={active ? "page" : undefined}
-                aria-label={isCart && ready && cart.count > 0 ? `Cart, ${cart.count} items` : undefined}
+                aria-label={isCart && ready && cart.totals.count > 0 ? `Cart, ${cart.totals.count} items` : undefined}
                 className={cn(
                   "tap-target press flex flex-1 flex-col items-center justify-center gap-1 text-[0.6875rem] leading-none font-medium",
                   active ? "text-primary" : "text-muted-foreground",

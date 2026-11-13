@@ -3,18 +3,23 @@
 import { CheckIcon, HandbagIcon } from "lucide-react";
 import { startTransition, useEffect, useOptimistic, useRef, useState } from "react";
 import { toast } from "sonner";
-import { addToCart } from "@/lib/actions/cart";
+import { cartCopy } from "@/lib/config/cart";
 import { productCopy } from "@/lib/config/product";
 import { cn } from "@/lib/utils";
-import { useShopState } from "../shop-state";
+import { useCart, type LinePreview } from "../cart/cart-provider";
 
 type Props = {
   /** null while a multi-variant product has no option chosen: the button is disabled. */
   variantId: string | null;
   name: string;
-  priceCents: number;
   inStock: boolean;
   quantity?: number;
+  /** Row data for the instant mini-cart line (without it, only the count moves until the server answers). */
+  preview?: LinePreview;
+  /** Open the mini cart once the add succeeds (default true). */
+  openCart?: boolean;
+  /** Runs after a successful add, before the mini cart opens (Quick View closes itself). */
+  onAdded?: () => void;
   /** icon: round bag button on cards. full: pill "Add to Cart" (spotlight card, Quick View, PDP). */
   appearance?: "icon" | "full";
   className?: string;
@@ -23,20 +28,24 @@ type Props = {
 const ADDED_MS = 1500;
 
 /**
- * Optimistic add-to-cart: the header count/total, the tab-bar badge and this button
- * update at once ("Added ✓" while pending and briefly after), then settle on the
- * server's numbers, or roll back with a toast on error.
+ * Optimistic add-to-cart through the cart store: the header count/total, the
+ * tab-bar badge, the mini cart row and this button update at once ("Added ✓" while
+ * pending and briefly after), then settle on the server's cart, or roll back with a
+ * toast on error. On success the mini cart opens (side sheet on laptop+, bottom
+ * sheet below).
  */
 export function AddToCartButton({
   variantId,
   name,
-  priceCents,
   inStock,
   quantity = 1,
+  preview,
+  openCart = true,
+  onAdded,
   appearance = "icon",
   className,
 }: Props) {
-  const { addToCartOptimistic, setCart } = useShopState();
+  const cart = useCart();
   const [adding, setAdding] = useOptimistic(false);
   const [added, setAdded] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -46,17 +55,18 @@ export function AddToCartButton({
     if (!variantId) return;
     startTransition(async () => {
       setAdding(true);
-      addToCartOptimistic({ count: quantity, totalCents: priceCents * quantity });
-      const result = await addToCart({ variantId, quantity });
-      if (result.ok) {
-        startTransition(() => setCart(result.data));
-        setAdded(true);
-        clearTimeout(timer.current);
-        timer.current = setTimeout(() => setAdded(false), ADDED_MS);
-        toast.success(quantity > 1 ? `${quantity} × ${name} added to cart` : `${name} added to cart`);
-      } else {
-        toast.error(result.error);
-      }
+      const ok = await cart.add({
+        variantId,
+        quantity,
+        preview,
+      });
+      if (!ok) return; // the store already showed the error toast
+      setAdded(true);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => setAdded(false), ADDED_MS);
+      toast.success(cartCopy.added(name, quantity), { id: `added-${variantId}` });
+      onAdded?.();
+      if (openCart) cart.openDrawer();
     });
   }
 

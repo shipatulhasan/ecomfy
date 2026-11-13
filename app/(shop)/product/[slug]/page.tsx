@@ -93,7 +93,7 @@ async function ProductPageContent({
 
   return (
     <ProductPurchaseProvider
-      product={{ id: product.id, slug: product.slug, name: product.name }}
+      product={{ id: product.id, slug: product.slug, name: product.name, image: product.images[0] ?? null }}
       variants={product.variants}
     >
       <PageHero crumbs={crumbs} jsonLd={breadcrumbJsonLd(crumbs, absoluteUrl)} />

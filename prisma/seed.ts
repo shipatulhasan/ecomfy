@@ -220,6 +220,13 @@ async function main() {
   const coupon = await prisma.coupon.create({
     data: { code: "ECO20", type: "PERCENT", value: 20, isActive: true },
   });
+  // Fixtures for the Shopping Cart coupon errors: expired, and minimum spend not met.
+  await prisma.coupon.createMany({
+    data: [
+      { code: "EXPIRED10", type: "PERCENT", value: 10, endsAt: new Date(Date.now() - 86_400_000) },
+      { code: "BIG50", type: "FIXED", value: 5000, minSubtotalCents: 20000 },
+    ],
+  });
 
   await prisma.address.create({ data: { userId: u.dianne!, kind: "BILLING", isDefault: true, ...dianneAddress } });
 
@@ -321,7 +328,9 @@ async function main() {
     `SELECT setval(pg_get_serial_sequence('"Order"', 'number'), (SELECT MAX("number") FROM "Order"))`,
   );
 
-  // Dianne's cart (Shopping Cart / Checkout screens) and wishlist (Wishlist screen).
+  // Dianne's cart: the Shopping Cart / Checkout capsicums plus the mini cart's
+  // orange and green apple (Shopping_Card_Popup.png). Wishlist: the Wishlist screen's
+  // three rows (mango out of stock) plus green apple.
   await prisma.cart.create({
     data: {
       userId: u.dianne!,
@@ -329,14 +338,17 @@ async function main() {
         create: [
           { variantId: catalog["green-capsicum"]!.variants["1 kg"]!.id, quantity: 5 },
           { variantId: catalog["red-capsicum"]!.variants["1 kg"]!.id, quantity: 1 },
+          { variantId: catalog["fresh-indian-orange"]!.variants["1 kg"]!.id, quantity: 1 },
+          { variantId: catalog["green-apple"]!.variants["1 kg"]!.id, quantity: 1 },
         ],
       },
     },
   });
   await prisma.wishlist.createMany({
-    data: ["green-capsicum", "chinese-cabbage", "surjapuri-mango"].map((slug) => ({
+    data: ["green-capsicum", "chinese-cabbage", "surjapuri-mango", "green-apple"].map((slug, i) => ({
       userId: u.dianne!,
       productId: catalog[slug]!.id,
+      createdAt: new Date(Date.now() - i * 60_000), // newest first = the PNG's row order
     })),
   });
 
@@ -382,7 +394,7 @@ async function main() {
   }
 
   const orderCount = await prisma.order.count();
-  console.log(`✔ ${orderCount} orders, 1 cart, 3 wishlist items, ${chineseCabbageReviews.length + extra.length} reviews, coupon ECO20`);
+  console.log(`✔ ${orderCount} orders, 1 cart (4 lines), 4 wishlist items, ${chineseCabbageReviews.length + extra.length} reviews, coupons ECO20 / EXPIRED10 / BIG50`);
   console.log(`\nSign in as admin@ecomfy.test or dianne.russell@ecomfy.test with SEED_PASSWORD.`);
 }
 

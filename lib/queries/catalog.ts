@@ -28,6 +28,10 @@ export type ProductCardData = {
   name: string;
   image: { url: string; alt: string; width: number; height: number } | null;
   variantId: string;
+  /** Default variant's name ("1 kg"): the mini cart row added from a card. */
+  variantName: string;
+  /** Default variant's stock. */
+  stock: number;
   priceCents: number;
   compareAtCents: number | null;
   inStock: boolean;
@@ -52,7 +56,7 @@ export const productCardSelect = {
     // Default variant first; it is the one a card shows and adds to the cart.
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
     take: 1,
-    select: { id: true, priceCents: true, compareAtCents: true, stock: true },
+    select: { id: true, name: true, priceCents: true, compareAtCents: true, stock: true },
   },
 } satisfies Prisma.ProductSelect;
 
@@ -67,6 +71,8 @@ function toProductCard(row: ProductCardRow): ProductCardData | null {
     name: row.name,
     image: row.images[0] ?? null,
     variantId: variant.id,
+    variantName: variant.name,
+    stock: variant.stock,
     priceCents: variant.priceCents,
     compareAtCents: variant.compareAtCents,
     inStock: variant.stock > 0,

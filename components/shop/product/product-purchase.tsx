@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { createContext, use, useMemo, useState } from "react";
 import { MAX_CART_QTY } from "@/lib/config/product";
 import type { ProductVariantData } from "@/lib/queries/product";
@@ -19,7 +20,9 @@ import { WishlistButton } from "./wishlist-button";
  * and the leaves show the default variant until the shopper chooses.
  */
 type Purchase = {
-  product: { id: string; slug: string; name: string };
+  product: { id: string; slug: string; name: string; image: { url: string; alt: string } | null };
+  /** quick-view: the intercepted modal, which closes itself after add-to-cart so the mini cart can open. */
+  surface: "page" | "quick-view";
   variants: ProductVariantData[];
   selected: ProductVariantData | null;
   /** What price / SKU show: the selection, else the default variant. */
@@ -41,9 +44,11 @@ function usePurchase() {
 export function ProductPurchaseProvider({
   product,
   variants,
+  surface = "page",
   children,
 }: {
   product: Purchase["product"];
+  surface?: Purchase["surface"];
   /** Default first, never empty (lib/queries/product.ts). */
   variants: ProductVariantData[];
   children: React.ReactNode;
@@ -57,6 +62,7 @@ export function ProductPurchaseProvider({
     const maxQuantity = Math.max(1, Math.min(shown.stock, MAX_CART_QTY));
     return {
       product,
+      surface,
       variants,
       selected,
       shown,
@@ -66,7 +72,7 @@ export function ProductPurchaseProvider({
       setQuantity,
       maxQuantity,
     };
-  }, [product, variants, selectedId, quantity]);
+  }, [product, surface, variants, selectedId, quantity]);
 
   return <PurchaseContext value={value}>{children}</PurchaseContext>;
 }
@@ -99,7 +105,8 @@ export function VariantPicker({ className }: { className?: string }) {
  * below laptop, tightened so it fits 320px screens.
  */
 export function PurchaseRow({ variant = "inline", className }: { variant?: "inline" | "bar"; className?: string }) {
-  const { product, variants, selected, shown, quantity, setQuantity, maxQuantity } = usePurchase();
+  const { product, surface, variants, selected, shown, quantity, setQuantity, maxQuantity } = usePurchase();
+  const router = useRouter();
   // Before a choice: purchasable if any option is.
   const inStock = selected ? selected.stock > 0 : variants.some((v) => v.stock > 0);
   const bar = variant === "bar";
@@ -110,9 +117,19 @@ export function PurchaseRow({ variant = "inline", className }: { variant?: "inli
         appearance="full"
         variantId={selected?.id ?? null}
         name={product.name}
-        priceCents={shown.priceCents}
         inStock={inStock}
         quantity={quantity}
+        preview={{
+          productId: product.id,
+          slug: product.slug,
+          name: product.name,
+          variantName: shown.name,
+          image: product.image,
+          unitCents: shown.priceCents,
+          compareAtCents: shown.compareAtCents,
+          stock: shown.stock,
+        }}
+        onAdded={surface === "quick-view" ? () => router.back() : undefined}
         // Phones: drop the bag icon so "Add to Cart" fits beside 44px stepper targets.
         className={
           bar ? "h-12.5 gap-1.5 px-3 text-copy tablet:px-6 tablet:text-lead [&>svg]:hidden tablet:[&>svg]:block" : "h-12.75 text-lead"
@@ -122,7 +139,6 @@ export function PurchaseRow({ variant = "inline", className }: { variant?: "inli
         productId={product.id}
         name={product.name}
         appearance="soft"
-        signInNext={`/product/${product.slug}`}
         className={bar ? "size-12.5" : undefined}
       />
     </div>

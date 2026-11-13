@@ -1,13 +1,13 @@
 "use client";
 
-import { HandbagIcon } from "lucide-react";
+import { HeartIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatPrice } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import type { NavLink } from "@/lib/config/site";
+import { useCart } from "./cart/cart-provider";
 import { useShopState } from "./shop-state";
 
 /** True when `pathname` is `href` or below it ("/" only matches itself). */
@@ -63,31 +63,6 @@ function NavLinkList({ links, className, linkClassName, pathname }: NavLinksProp
   );
 }
 
-/** Header cart: bag with count badge + "Shopping cart: $57.00" (optimistic). */
-export function CartSummary() {
-  const { ready, cart } = useShopState();
-  return (
-    <Link
-      href="/cart"
-      aria-label={ready ? `Shopping cart, ${cart.count} items, ${formatPrice(cart.totalCents)}` : "Shopping cart"}
-      className="tap-target flex items-center gap-3"
-    >
-      <span className="relative">
-        <HandbagIcon aria-hidden className="size-7 stroke-[1.5] text-foreground laptop:size-8" />
-        <CartCountBadge />
-      </span>
-      <span className="hidden flex-col laptop:flex">
-        <span className="text-[0.6875rem] leading-tight text-text-body">Shopping cart:</span>
-        {ready ? (
-          <span className="text-copy font-medium text-foreground">{formatPrice(cart.totalCents)}</span>
-        ) : (
-          <Skeleton className="mt-0.5 h-4 w-14" />
-        )}
-      </span>
-    </Link>
-  );
-}
-
 /** "Sign In / Sign Up" or "My Account" once the session is known. */
 export function AuthLinks({ className }: { className?: string }) {
   const { ready, user } = useShopState();
@@ -112,26 +87,49 @@ export function AuthLinks({ className }: { className?: string }) {
   );
 }
 
-/**
- * Item-count bubble on a cart icon (header bag and the tab bar's Cart tab). Reads the
- * optimistic store, so it updates the moment add-to-cart is pressed. Place it inside
- * a `relative` wrapper around the icon.
- */
-export function CartCountBadge({ className }: { className?: string }) {
-  const { ready, cart } = useShopState();
-  if (!ready || cart.count <= 0) return null;
+/** The bubble on header / tab-bar icons. Place it inside a `relative` wrapper. */
+function CountBubble({ count, className }: { count: number; className?: string }) {
+  if (count <= 0) return null;
   return (
     <span
       aria-hidden
       // Re-mount on every count change → the bubble pops when something is added.
-      key={cart.count}
+      key={count}
       className={cn(
         "motion-safe:animate-in motion-safe:zoom-in-50 motion-safe:duration-300",
         "absolute -top-1 -right-1.5 grid min-w-4.5 place-items-center rounded-full border border-background bg-brand-dark px-1 text-[0.625rem] leading-4 font-medium text-primary-foreground",
         className,
       )}
     >
-      {cart.count > 99 ? "99+" : cart.count}
+      {count > 99 ? "99+" : count}
     </span>
+  );
+}
+
+/**
+ * Item-count bubble on a cart icon (header bag, mini cart triggers, the tab bar's
+ * Cart tab). Reads the optimistic cart store, so it updates the moment
+ * add-to-cart is pressed.
+ */
+export function CartCountBadge({ className }: { className?: string }) {
+  const { ready, cart } = useCart();
+  return ready ? <CountBubble count={cart.totals.count} className={className} /> : null;
+}
+
+/** Header heart: wishlist count (optimistic, guests included). */
+export function WishlistLink() {
+  const { ready, wishlist } = useShopState();
+  const count = ready ? wishlist.size : 0;
+  return (
+    <Link
+      href="/wishlist"
+      aria-label={count > 0 ? `Wishlist, ${count} items` : "Wishlist"}
+      className="tap-target hidden place-items-center text-foreground hover:text-primary laptop:grid"
+    >
+      <span className="relative">
+        <HeartIcon aria-hidden className="size-8 stroke-[1.5]" />
+        <CountBubble count={count} />
+      </span>
+    </Link>
   );
 }

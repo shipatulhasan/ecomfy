@@ -1,11 +1,13 @@
 "use client";
 
-import { createContext, use, useCallback, useEffect, useMemo, useOptimistic, useState } from "react";
-import type { CartSummary, ShopUserState } from "@/lib/queries/user-state";
+import { createContext, use, useCallback, useEffect, useMemo, useState } from "react";
+import type { ShopUserState } from "@/lib/queries/user-state";
+import { useCart } from "./cart/cart-provider";
 
 /**
- * Per-visitor storefront state (cart summary, wishlist, signed-in user) shared by
- * the header and every product card.
+ * Per-visitor storefront state besides the cart (signed-in user, wishlist) shared
+ * by the header and every product card. The cart has its own store
+ * (components/shop/cart/cart-provider.tsx).
  *
  * The provider sits in app/(shop)/layout.tsx and renders statically; the real
  * values stream in from <ShopStateLoader> (inside <Suspense>), which reads the
@@ -14,14 +16,10 @@ import type { CartSummary, ShopUserState } from "@/lib/queries/user-state";
 type ShopState = {
   ready: boolean;
   user: ShopUserState["user"];
-  /** Optimistic: includes pending add-to-cart updates. */
-  cart: CartSummary;
+  /** Product ids. Updated optimistically by the heart buttons. */
   wishlist: ReadonlySet<string>;
-  /** Call inside a transition, before awaiting the server action. */
-  addToCartOptimistic: (delta: CartSummary) => void;
-  setCart: (cart: CartSummary) => void;
   setWishlisted: (productId: string, wishlisted: boolean) => void;
-  hydrate: (state: ShopUserState) => void;
+  hydrate: (state: Omit<ShopUserState, "cart">) => void;
 };
 
 const ShopStateContext = createContext<ShopState | null>(null);
@@ -29,18 +27,11 @@ const ShopStateContext = createContext<ShopState | null>(null);
 export function ShopStateProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<ShopUserState["user"]>(null);
-  const [cart, setCart] = useState<CartSummary>({ count: 0, totalCents: 0 });
   const [wishlist, setWishlist] = useState<ReadonlySet<string>>(() => new Set());
-  const [optimisticCart, addToCartOptimistic] = useOptimistic(
-    cart,
-    (current, delta: CartSummary) => ({
-      count: current.count + delta.count,
-      totalCents: current.totalCents + delta.totalCents,
-    }),
-  );
 
   const setWishlisted = useCallback((productId: string, on: boolean) => {
     setWishlist((prev) => {
+      if (prev.has(productId) === on) return prev;
       const next = new Set(prev);
       if (on) next.add(productId);
       else next.delete(productId);
@@ -48,25 +39,15 @@ export function ShopStateProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const hydrate = useCallback((s: ShopUserState) => {
+  const hydrate = useCallback((s: Omit<ShopUserState, "cart">) => {
     setUser(s.user);
-    setCart(s.cart);
     setWishlist(new Set(s.wishlist));
     setReady(true);
   }, []);
 
   const value = useMemo<ShopState>(
-    () => ({
-      ready,
-      user,
-      cart: optimisticCart,
-      wishlist,
-      addToCartOptimistic,
-      setCart,
-      setWishlisted,
-      hydrate,
-    }),
-    [ready, user, optimisticCart, wishlist, addToCartOptimistic, setWishlisted, hydrate],
+    () => ({ ready, user, wishlist, setWishlisted, hydrate }),
+    [ready, user, wishlist, setWishlisted, hydrate],
   );
 
   return <ShopStateContext value={value}>{children}</ShopStateContext>;
@@ -78,9 +59,16 @@ export function useShopState(): ShopState {
   return ctx;
 }
 
-/** Rendered by the server <ShopStateLoader> once the session/cart are read. */
+/**
+ * Rendered by the server <ShopStateLoader> once the session/cart/wishlist are read,
+ * and again after every `refresh()` from a cart or wishlist action.
+ */
 export function ShopStateHydrator({ state }: { state: ShopUserState }) {
   const { hydrate } = useShopState();
-  useEffect(() => hydrate(state), [hydrate, state]);
+  const { hydrate: hydrateCart } = useCart();
+  useEffect(() => {
+    hydrate(state);
+    hydrateCart(state.cart);
+  }, [hydrate, hydrateCart, state]);
   return null;
 }

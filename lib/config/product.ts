@@ -47,7 +47,6 @@ export const productCopy = {
   addToCart: "Add to Cart",
   added: "Added",
   outOfStockButton: "Out of Stock",
-  wishlistSignIn: "Sign in to save items to your wishlist.",
   signIn: "Sign in",
   notFoundTitle: "This product isn't available",
   notFoundBody: "It may have been removed or is no longer for sale.",

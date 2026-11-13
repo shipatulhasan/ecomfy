@@ -1,4 +1,4 @@
-import { ChevronDownIcon, HeartIcon, MapPinIcon, MenuIcon, PhoneCallIcon, SearchIcon } from "lucide-react";
+import { ChevronDownIcon, MapPinIcon, MenuIcon, PhoneCallIcon, SearchIcon } from "lucide-react";
 import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
@@ -12,11 +12,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { siteConfig } from "@/lib/config/site";
 import { getCategories } from "@/lib/queries/catalog";
-import { AuthLinks, CartSummary, NavLinks } from "./header-client";
+import { CartDrawer } from "./cart/cart-drawer";
+import { AuthLinks, NavLinks, WishlistLink } from "./header-client";
 
 /**
  * Storefront header (Figma "Navigation" 1920×191): green top bar, main bar
- * (logo, search, wishlist, cart) and nav bar (All Categories, links, phone).
+ * (logo, search, wishlist with count, cart → mini cart) and nav bar (All Categories, links, phone).
  *
  * - Laptop+: all three rows as in the PNG, scrolling with the page.
  * - Below laptop: a compact app bar with the logo, a search icon and the cart. It's
@@ -113,15 +114,9 @@ function MainBar() {
           >
             <SearchIcon aria-hidden className="size-6 stroke-[1.5]" />
           </Link>
-          <Link
-            href="/wishlist"
-            aria-label="Wishlist"
-            className="tap-target hidden place-items-center text-foreground hover:text-primary laptop:grid"
-          >
-            <HeartIcon aria-hidden className="size-8 stroke-[1.5]" />
-          </Link>
+          <WishlistLink />
           <span aria-hidden className="hidden h-6 w-px bg-border laptop:block" />
-          <CartSummary />
+          <CartDrawer />
         </div>
       </Container>
     </div>

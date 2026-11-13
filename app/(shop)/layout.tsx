@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { CartProvider } from "@/components/shop/cart/cart-provider";
 import { BottomNav } from "@/components/shop/mobile/bottom-nav";
 import { NewsletterBand } from "@/components/shop/newsletter-band";
 import { ShopStateProvider } from "@/components/shop/shop-state";
@@ -9,7 +10,7 @@ import { SiteHeader } from "@/components/shop/site-header";
 /**
  * Storefront chrome shared by every shop page. The layout itself is static; the
  * visitor's session / cart / wishlist stream in through <ShopStateLoader> inside
- * <Suspense> and land in the client store (header totals, wishlist hearts).
+ * <Suspense> and land in the client stores (cart: header totals, mini cart, /cart; wishlist hearts).
  *
  * Below laptop it's an app shell: a compact sticky header plus the bottom tab bar
  * (CLAUDE.md → App shell).
@@ -21,17 +22,19 @@ import { SiteHeader } from "@/components/shop/site-header";
 export default function ShopLayout({ children, modal }: LayoutProps<"/">) {
   return (
     <ShopStateProvider>
-      <Suspense fallback={null}>
-        <ShopStateLoader />
-      </Suspense>
-      <SiteHeader />
-      <main id="main" className="flex-1">
-        {children}
-      </main>
-      <NewsletterBand />
-      <SiteFooter />
-      <BottomNav />
-      {modal}
+      <CartProvider>
+        <Suspense fallback={null}>
+          <ShopStateLoader />
+        </Suspense>
+        <SiteHeader />
+        <main id="main" className="flex-1">
+          {children}
+        </main>
+        <NewsletterBand />
+        <SiteFooter />
+        <BottomNav />
+        {modal}
+      </CartProvider>
     </ShopStateProvider>
   );
 }

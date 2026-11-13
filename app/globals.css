@@ -322,6 +322,17 @@
     scale: 0.96;
   }
 }
+/*
+ * ── Mini cart (components/shop/cart/cart-drawer.tsx) ──────────────────────────
+ * Shopping_Card_Popup.png dims the page with the design's dark scrim (as the
+ * Quick View does), not the vendored Sheet's light blur. The overlay is a sibling
+ * rendered before the content, and components/ui stays untouched.
+ */
+[data-slot="sheet-overlay"]:has(+ [data-cart-drawer]) {
+  background: var(--overlay);
+  backdrop-filter: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-slot="route-modal"][data-vaul-drawer][data-vaul-snap-points="false"][data-vaul-drawer-direction="bottom"],
   [data-slot="route-modal-overlay"][data-vaul-overlay][data-vaul-snap-points="false"] {

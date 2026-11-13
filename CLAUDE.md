@@ -93,6 +93,7 @@ The system is defined in `app/globals.css` and `designs/tokens.json`. The per-sc
   - No JS width detection for layout (`matchMedia`, `innerWidth`, `useIsMobile`…); `pnpm lint` fails on it.
   - Show/hide with `hidden laptop:flex` / `laptop:hidden`.
   - The one exception is the vendored shadcn Sidebar's `hooks/use-mobile.ts`, which switches to a Sheet below 1024px.
+  - Opening the mini cart from code (after add-to-cart) checks which header cart trigger CSS is showing (`element.checkVisibility()` in `components/shop/cart/cart-provider.tsx`). This reads the DOM, not the width; CSS stays the only place the breakpoint lives.
 - **`next/image`:** give `sizes` per layer, e.g. `sizes="(width >= 64rem) 264px, (width >= 48rem) 33vw, 50vw"`.
 
 ## App shell (below laptop, every storefront screen)
@@ -103,6 +104,7 @@ Below 1024px the storefront behaves like a native app. Laptop and desktop follow
   - Tabs: Home, Shop, Search, Cart (optimistic badge), Account.
   - Visible on every shop page. It hides itself while a text field has focus (CSS) and isn't rendered on `/checkout*`.
   - New tab-level routes go in its `tabs` list. Focused flows go in `HIDDEN_ON`.
+- **Cart:** one client store (`components/shop/cart/cart-provider.tsx`, `useCart()`) feeds the header, tab badge, mini cart and `/cart`. Prices and totals are computed on the server (`lib/queries/cart.ts`, `lib/cart/pricing.ts`); cart and wishlist actions return the new state and call `refresh()`. Guests' cart and wishlist live in httpOnly cookies and merge on sign-in (`lib/cart/merge.ts`, Better Auth after-hook in `lib/auth.ts`).
 - **Bottom sheets, not modals or side panels:**
   - Filters, sort, variant pickers and the mini cart use `BottomSheet` (`components/shared/bottom-sheet.tsx`, vaul Drawer with a drag handle).
   - Anything that's a side `Sheet` or `Dialog` on laptop uses `AdaptiveSheet` (bottom sheet below, right sheet above).

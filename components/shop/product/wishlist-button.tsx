@@ -1,18 +1,17 @@
 "use client";
 
 import { HeartIcon } from "lucide-react";
-import { usePathname, useRouter } from "next/navigation";
-import { startTransition, useOptimistic } from "react";
+import { startTransition } from "react";
 import { toast } from "sonner";
-import { SIGN_IN_REQUIRED } from "@/lib/actions/result";
 import { toggleWishlist } from "@/lib/actions/wishlist";
-import { productCopy } from "@/lib/config/product";
 import { cn } from "@/lib/utils";
 import { useShopState } from "../shop-state";
 
 /**
- * Heart toggle, optimistic. Signed-out visitors get a toast prompt with a "Sign in"
- * action (the action re-checks the session too).
+ * Heart toggle. Optimistic through the shared wishlist set, so the header count and
+ * every other heart for the product change at once; rolls back with a toast on
+ * error. Works signed out too: guests' hearts live in a cookie and merge into the
+ * account on sign-in.
  *
  * - card: 40px outlined circle (product cards).
  * - soft: 52px green-tinted circle (Quick View / PDP purchase row).
@@ -21,41 +20,26 @@ export function WishlistButton({
   productId,
   name,
   appearance = "card",
-  signInNext,
   className,
 }: {
   productId: string;
   name: string;
   appearance?: "card" | "soft";
-  /** Where to come back after signing in (defaults to the current path). */
-  signInNext?: string;
   className?: string;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const { ready, user, wishlist, setWishlisted } = useShopState();
-  const saved = wishlist.has(productId);
-  const [optimisticSaved, setOptimisticSaved] = useOptimistic(saved);
-
-  const promptSignIn = () =>
-    toast(productCopy.wishlistSignIn, {
-      id: "wishlist-sign-in",
-      action: {
-        label: productCopy.signIn,
-        onClick: () => router.push(`/sign-in?next=${encodeURIComponent(signInNext ?? pathname)}`),
-      },
-    });
+  const { wishlist, setWishlisted } = useShopState();
+  const optimisticSaved = wishlist.has(productId);
 
   function toggle() {
-    if (ready && !user) return promptSignIn();
+    const next = !optimisticSaved;
+    setWishlisted(productId, next);
     startTransition(async () => {
-      setOptimisticSaved(!saved);
       const result = await toggleWishlist({ productId });
       if (result.ok) {
-        startTransition(() => setWishlisted(productId, result.data.wishlisted));
-      } else if (result.error === SIGN_IN_REQUIRED) {
-        promptSignIn();
+        setWishlisted(productId, result.data.wishlisted);
+        if (result.data.wishlisted) toast.success(`${name} saved to your wishlist`, { id: `wish-${productId}` });
       } else {
+        setWishlisted(productId, !next);
         toast.error(result.error);
       }
     });

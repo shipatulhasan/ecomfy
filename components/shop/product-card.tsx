@@ -139,8 +139,8 @@ export function ProductCard({
               appearance="full"
               variantId={product.variantId}
               name={product.name}
-              priceCents={product.priceCents}
               inStock={product.inStock}
+              preview={cartPreview(product)}
             />
             <QuickViewLink slug={product.slug} name={product.name} className="size-11.5 border-none bg-muted-strong" />
           </div>
@@ -187,14 +187,26 @@ export function ProductCard({
           <AddToCartButton
             variantId={product.variantId}
             name={product.name}
-            priceCents={product.priceCents}
             inStock={product.inStock}
+            preview={cartPreview(product)}
           />
         </div>
       )}
     </article>
   );
 }
+
+/** Mini-cart row data for an add from this card (shown before the server answers). */
+const cartPreview = (p: ProductCardData) => ({
+  productId: p.id,
+  slug: p.slug,
+  name: p.name,
+  variantName: p.variantName,
+  image: p.image ? { url: p.image.url, alt: p.image.alt } : null,
+  unitCents: p.priceCents,
+  compareAtCents: p.compareAtCents,
+  stock: p.stock,
+});
 
 /** Shop sidebar "Sale Products" row (Figma "Product" 312×112). */
 function CompactCard({ product, href, className }: { product: ProductCardData; href: string; className?: string }) {
