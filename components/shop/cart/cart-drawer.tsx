@@ -7,7 +7,8 @@ import { BottomSheet } from "@/components/shared/bottom-sheet";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cartCopy } from "@/lib/config/cart";
-import { formatPrice } from "@/lib/money";
+import { Money } from "@/components/shared/money";
+import { useCurrency } from "@/components/shared/currency-provider";
 import { CartCountBadge } from "../header-client";
 import { useCart } from "./cart-provider";
 import { MiniCartFooter, MiniCartItems } from "./mini-cart";
@@ -26,6 +27,7 @@ import { MiniCartFooter, MiniCartItems } from "./mini-cart";
  */
 export function CartDrawer() {
   const { ready, cart, drawer, setDrawer, registerTrigger } = useCart();
+  const { format } = useCurrency();
   const sideRef = useRef<HTMLButtonElement>(null);
   const bottomRef = useRef<HTMLButtonElement>(null);
 
@@ -40,7 +42,7 @@ export function CartDrawer() {
 
   const count = cart.totals.count;
   const label = ready
-    ? `Shopping cart, ${count} items, ${formatPrice(cart.totals.subtotalCents)}`
+    ? `Shopping cart, ${count} items, ${format(cart.totals.subtotalCents)}`
     : "Shopping cart";
   const title = cartCopy.drawerTitle(ready ? cart.lines.length : 0);
 
@@ -61,7 +63,7 @@ export function CartDrawer() {
             <span className="flex flex-col items-start">
               <span className="text-[0.6875rem] leading-tight text-text-body">Shopping cart:</span>
               {ready ? (
-                <span className="text-copy font-medium text-foreground">{formatPrice(cart.totals.subtotalCents)}</span>
+                <span className="text-copy font-medium text-foreground"><Money cents={cart.totals.subtotalCents} /></span>
               ) : (
                 <Skeleton className="mt-0.5 h-4 w-14" />
               )}

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Lato, Poppins } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { CURRENCY_INIT_SCRIPT } from "@/components/shared/currency-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { appColors, appIcons, appName } from "@/lib/config/pwa";
 import { siteUrl } from "@/lib/site-url";
@@ -43,8 +44,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
+      data-currency="BDT"
+      // The inline script below may switch data-currency to the saved choice before paint.
+      suppressHydrationWarning
       className={`${poppins.variable} ${lato.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: CURRENCY_INIT_SCRIPT }} />
+      </head>
       <body className="flex min-h-full flex-col">
         <TooltipProvider>{children}</TooltipProvider>
         {/* Light only until a dark design exists. */}

@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { CurrencyProvider } from "@/components/shared/currency-provider";
 import { CartProvider } from "@/components/shop/cart/cart-provider";
 import { BottomNav } from "@/components/shop/mobile/bottom-nav";
 import { NewsletterBand } from "@/components/shop/newsletter-band";
@@ -6,6 +7,7 @@ import { ShopStateProvider } from "@/components/shop/shop-state";
 import { ShopStateLoader } from "@/components/shop/shop-state-loader";
 import { SiteFooter } from "@/components/shop/site-footer";
 import { SiteHeader } from "@/components/shop/site-header";
+import { getStoreSettings } from "@/lib/queries/settings";
 
 /**
  * Storefront chrome shared by every shop page. The layout itself is static; the
@@ -19,8 +21,11 @@ import { SiteHeader } from "@/components/shop/site-header";
  * Quick View (@modal/(.)quick/[slug]) render there, over the current page and
  * inside the shop store, so add-to-cart updates the header and tab bar at once.
  */
-export default function ShopLayout({ children, modal }: LayoutProps<"/">) {
+export default async function ShopLayout({ children, modal }: LayoutProps<"/">) {
+  // Cached (cacheTag "settings"): the layout stays static.
+  const { usdToBdtRate } = await getStoreSettings();
   return (
+    <CurrencyProvider rate={usdToBdtRate}>
     <ShopStateProvider>
       <CartProvider>
         <Suspense fallback={null}>
@@ -36,5 +41,6 @@ export default function ShopLayout({ children, modal }: LayoutProps<"/">) {
         {modal}
       </CartProvider>
     </ShopStateProvider>
+    </CurrencyProvider>
   );
 }

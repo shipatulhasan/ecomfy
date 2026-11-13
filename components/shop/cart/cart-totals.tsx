@@ -4,7 +4,8 @@ import Link from "next/link";
 import { StickyActionBar } from "@/components/shared/sticky-action-bar";
 import type { CartView } from "@/lib/cart/pricing";
 import { cartCopy } from "@/lib/config/cart";
-import { formatPrice } from "@/lib/money";
+import { Money } from "@/components/shared/money";
+import { useCurrency } from "@/components/shared/currency-provider";
 import { cn } from "@/lib/utils";
 import { useCart } from "./cart-provider";
 
@@ -27,23 +28,23 @@ export function CartTotals({ cart }: { cart: CartView }) {
       <dl className="mt-2 flex flex-col tabular-nums">
         <div className={row}>
           <dt className="text-text-body">{cartCopy.subtotalLabel}</dt>
-          <dd className="font-medium text-foreground">{formatPrice(totals.subtotalCents)}</dd>
+          <dd className="font-medium text-foreground"><Money cents={totals.subtotalCents} /></dd>
         </div>
         {coupon && totals.discountCents > 0 && (
           <div className={row}>
             <dt className="text-text-body">{cartCopy.discountLabel(coupon.code)}</dt>
-            <dd className="font-medium text-primary">−{formatPrice(totals.discountCents)}</dd>
+            <dd className="font-medium text-primary">−<Money cents={totals.discountCents} /></dd>
           </div>
         )}
         <div className={row}>
           <dt className="text-text-body">{cartCopy.shippingLabel}</dt>
           <dd className="font-medium text-foreground">
-            {totals.shippingCents === 0 ? cartCopy.free : formatPrice(totals.shippingCents)}
+            {totals.shippingCents === 0 ? cartCopy.shippingAtCheckout : <Money cents={totals.shippingCents} />}
           </dd>
         </div>
         <div className="flex items-center justify-between py-3 text-lead">
           <dt className="text-text-body">{cartCopy.totalLabel}</dt>
-          <dd className="font-semibold text-foreground">{formatPrice(totals.totalCents)}</dd>
+          <dd className="font-semibold text-foreground"><Money cents={totals.totalCents} /></dd>
         </div>
       </dl>
       <div className="mt-5 hidden flex-col gap-2 laptop:flex">
@@ -72,14 +73,15 @@ function CheckoutButton({ disabled, label, className }: { disabled: boolean; lab
   );
 }
 
-/** Below laptop: "Proceed to checkout · $84.00" pinned above the tab bar. */
+/** Below laptop: "Proceed to checkout · ৳84.00" pinned above the tab bar. */
 export function CartCheckoutBar({ cart }: { cart: CartView }) {
+  const { format } = useCurrency();
   return (
     <StickyActionBar>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <CheckoutButton
           disabled={cart.hasIssues}
-          label={`${cartCopy.proceed} · ${formatPrice(cart.totals.totalCents)}`}
+          label={`${cartCopy.proceed} · ${format(cart.totals.totalCents)}`}
         />
       </div>
     </StickyActionBar>

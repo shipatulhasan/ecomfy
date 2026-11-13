@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Container } from "@/components/shared/container";
+import { FormAlert } from "@/components/shared/form-field";
 import { PageTransition } from "@/components/shared/page-transition";
 import { CartPageView } from "@/components/shop/cart/cart-page-view";
 import { CartPageSkeleton } from "@/components/shop/cart/cart-skeletons";
@@ -21,7 +22,7 @@ export const metadata: Metadata = {
 
 const crumbs: Crumb[] = [{ label: "Home", href: "/" }, { label: cartCopy.crumb }];
 
-export default function CartPage() {
+export default function CartPage({ searchParams }: PageProps<"/cart">) {
   return (
     <PageTransition>
       <PageHero crumbs={crumbs} />
@@ -29,7 +30,7 @@ export default function CartPage() {
         <h1 className="text-center text-h2 text-foreground">{cartCopy.pageTitle}</h1>
         <div className="mt-6 tablet:mt-8">
           <Suspense fallback={<CartPageSkeleton />}>
-            <CartSection />
+            <CartSection searchParams={searchParams} />
           </Suspense>
         </div>
       </Container>
@@ -37,7 +38,17 @@ export default function CartPage() {
   );
 }
 
-async function CartSection() {
-  const cart = await getCart();
-  return <CartPageView initial={cart} suggestions={<ProductSuggestions title={cartCopy.suggestions} />} />;
+async function CartSection({ searchParams }: Pick<PageProps<"/cart">, "searchParams">) {
+  const [cart, { notice }] = await Promise.all([getCart(), searchParams]);
+  return (
+    <>
+      {/* Checkout sends the visitor back here when stock changed under them. */}
+      {notice === "stock" && cart.lines.length > 0 && (
+        <FormAlert tone="error" className="mb-4 tablet:mb-6">
+          {cartCopy.stockNotice}
+        </FormAlert>
+      )}
+      <CartPageView initial={cart} suggestions={<ProductSuggestions title={cartCopy.suggestions} />} />
+    </>
+  );
 }

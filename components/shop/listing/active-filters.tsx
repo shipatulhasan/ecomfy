@@ -2,7 +2,7 @@ import { XIcon } from "lucide-react";
 import Link from "next/link";
 import { Rail, RailItem } from "@/components/shared/rail";
 import { shopContent } from "@/lib/config/shop";
-import { formatPriceWhole } from "@/lib/money";
+import { formatMoneyWhole } from "@/lib/money";
 import { hasActiveFilters, shopHref, type ShopFilters } from "@/lib/shop-params";
 import { cn } from "@/lib/utils";
 
@@ -19,8 +19,8 @@ export function ActiveFilters({ filters, categoryName }: { filters: ShopFilters;
   if (filters.category) chips.push({ key: "category", label: categoryName ?? filters.category, href: shopHref({ ...base, category: undefined }) });
   if (filters.q) chips.push({ key: "q", label: `“${filters.q}”`, href: shopHref({ ...base, q: undefined }) });
   if (filters.min != null || filters.max != null) {
-    const lo = filters.min != null ? formatPriceWhole(filters.min * 100) : "";
-    const hi = filters.max != null ? formatPriceWhole(filters.max * 100) : "";
+    const lo = filters.min != null ? formatMoneyWhole(filters.min * 100) : "";
+    const hi = filters.max != null ? formatMoneyWhole(filters.max * 100) : "";
     const label = lo && hi ? `${lo} — ${hi}` : lo ? `From ${lo}` : `Up to ${hi}`;
     chips.push({ key: "price", label, href: shopHref({ ...base, min: undefined, max: undefined }) });
   }

@@ -1,5 +1,6 @@
 import { productCopy } from "@/lib/config/product";
-import { discountPercent, formatPrice } from "@/lib/money";
+import { Money } from "@/components/shared/money";
+import { discountPercent } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 /**
@@ -23,12 +24,12 @@ export function PriceBlock({
         {off > 0 && compareAtCents && (
           <s className="text-h4 font-normal text-muted-foreground">
             <span className="sr-only">Was </span>
-            {formatPrice(compareAtCents)}
+            <Money cents={compareAtCents} />
           </s>
         )}
         <span className="text-h3 font-medium text-brand-dark">
           {off > 0 && <span className="sr-only">Now </span>}
-          {formatPrice(priceCents)}
+          <Money cents={priceCents} />
         </span>
       </p>
       {off > 0 && (

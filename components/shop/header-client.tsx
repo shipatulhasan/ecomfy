@@ -1,6 +1,6 @@
 "use client";
 
-import { HeartIcon } from "lucide-react";
+import { ChevronLeftIcon, HeartIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense } from "react";
@@ -130,6 +130,42 @@ export function WishlistLink() {
         <HeartIcon aria-hidden className="size-8 stroke-[1.5]" />
         <CountBubble count={count} />
       </span>
+    </Link>
+  );
+}
+
+/**
+ * Below laptop, sub-pages get a back chevron before the logo in the compact app
+ * bar (account sub-pages, password reset). It goes to the parent screen, not
+ * history, so a deep link still has somewhere sensible to go.
+ */
+export function backTarget(pathname: string): { href: string; label: string } | null {
+  if (/^\/account\/orders\/[^/]+$/.test(pathname)) return { href: "/account/orders", label: "Back to orders" };
+  if (pathname.startsWith("/account/")) return { href: "/account", label: "Back to account" };
+  if (pathname === "/forgot-password" || pathname === "/reset-password") return { href: "/sign-in", label: "Back to sign in" };
+  return null;
+}
+
+export function HeaderBackButton() {
+  return (
+    <Suspense fallback={null}>
+      <ActiveBackButton />
+    </Suspense>
+  );
+}
+
+function ActiveBackButton() {
+  const pathname = usePathname();
+  const target = backTarget(pathname);
+  if (!target) return null;
+  return (
+    <Link
+      href={target.href}
+      transitionTypes={["nav-back"]}
+      aria-label={target.label}
+      className="tap-target press -ml-3 grid place-items-center text-foreground laptop:hidden"
+    >
+      <ChevronLeftIcon aria-hidden className="size-6 stroke-[1.5]" />
     </Link>
   );
 }

@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { ActionError } from "@/lib/actions/result";
 import { getOrCreateCart, type CartOwner } from "./owner";
-import { maxLineQuantity } from "./pricing";
+import { availableStock, maxLineQuantity } from "./pricing";
 
 /**
  * Add `quantity` of a variant to the visitor's cart, capped at stock. Shared by
@@ -12,12 +12,12 @@ import { maxLineQuantity } from "./pricing";
 export async function addVariantToCart(variantId: string, quantity: number): Promise<CartOwner> {
   const variant = await prisma.variant.findUnique({
     where: { id: variantId },
-    select: { stock: true, product: { select: { status: true } } },
+    select: { stock: true, reserved: true, product: { select: { status: true } } },
   });
   if (!variant || variant.product.status !== "ACTIVE") {
     throw new ActionError("This product is no longer available.");
   }
-  const cap = maxLineQuantity(variant.stock);
+  const cap = maxLineQuantity(availableStock(variant));
   if (cap <= 0) throw new ActionError("Sorry, this product is out of stock.");
 
   const { cartId, owner } = await getOrCreateCart();

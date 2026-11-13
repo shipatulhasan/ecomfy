@@ -5,7 +5,8 @@ import { useId, useState, useTransition } from "react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { couponMinimumProblem } from "@/lib/cart/pricing";
 import { cartCopy } from "@/lib/config/cart";
-import { formatPrice } from "@/lib/money";
+import { Money } from "@/components/shared/money";
+import { useCurrency } from "@/components/shared/currency-provider";
 import { cn } from "@/lib/utils";
 import { useCart } from "./cart-provider";
 
@@ -44,6 +45,7 @@ export function CouponCard() {
 
 function CouponBody({ className }: { className?: string }) {
   const { cart, applyCoupon, removeCoupon } = useCart();
+  const { format } = useCurrency();
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -52,13 +54,13 @@ function CouponBody({ className }: { className?: string }) {
 
   const coupon = cart.coupon;
   if (coupon) {
-    const problem = coupon.error ?? couponMinimumProblem(coupon, cart.totals.subtotalCents);
+    const problem = coupon.error ?? couponMinimumProblem(coupon, cart.totals.subtotalCents, format);
     return (
       <div className={cn("flex flex-col gap-1.5", className)}>
         <div className="flex min-h-13 items-center justify-between gap-3 rounded-full border border-dashed border-primary bg-secondary px-6">
           <p className="text-copy text-brand-dark">
             <span className="font-semibold">{coupon.code}</span>
-            {!problem && cart.totals.discountCents > 0 && <> · −{formatPrice(cart.totals.discountCents)}</>}
+            {!problem && cart.totals.discountCents > 0 && <> · −<Money cents={cart.totals.discountCents} /></>}
           </p>
           <button
             type="button"

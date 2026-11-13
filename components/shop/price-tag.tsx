@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
-import { formatPrice } from "@/lib/money";
+import { Money } from "@/components/shared/money";
 
-/** "$14.99 $20.99": price + struck-through compare-at (only when it is higher). */
+/** "৳14.99 ৳20.99": price + struck-through compare-at (only when it is higher). */
 export function PriceTag({
   priceCents,
   compareAtCents,
@@ -17,12 +17,12 @@ export function PriceTag({
   return (
     <p className={cn("flex flex-wrap items-baseline gap-x-0.5", className)}>
       <span className={cn("font-medium text-foreground", size === "lg" ? "text-h3 font-medium" : "text-lead")}>
-        {formatPrice(priceCents)}
+        <Money cents={priceCents} />
       </span>
       {onSale && (
         <s className={cn("text-muted-foreground", size === "lg" ? "text-h3 font-normal" : "text-lead")}>
           <span className="sr-only">was </span>
-          {formatPrice(compareAtCents)}
+          <Money cents={compareAtCents} />
         </s>
       )}
     </p>

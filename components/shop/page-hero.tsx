@@ -1,20 +1,10 @@
-import { ChevronRightIcon, HomeIcon } from "lucide-react";
 import Image from "next/image";
-import Link from "next/link";
-import { Fragment } from "react";
 import { Container } from "@/components/shared/container";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { asset } from "@/lib/assets";
 import { cn } from "@/lib/utils";
+import { PageHeroCrumbs, type Crumb } from "./page-hero-crumbs";
 
-export type Crumb = { label: string; href?: string };
+export type { Crumb } from "./page-hero-crumbs";
 
 const background = asset("banners", "breadcrumb-bg");
 
@@ -33,7 +23,25 @@ export function PageHero({
   jsonLd?: object;
   className?: string;
 }) {
-  const [home, ...rest] = crumbs;
+  return (
+    <PageHeroFrame className={className}>
+      <PageHeroCrumbs crumbs={crumbs} />
+      {jsonLd && (
+        <script
+          type="application/ld+json"
+          // Escape "<" so a crumb label can't close the script tag (Next.js JSON-LD guide).
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
+        />
+      )}
+    </PageHeroFrame>
+  );
+}
+
+/**
+ * The band without crumbs, for layouts whose crumbs depend on the page
+ * (account area: components/shop/account/account-hero.tsx).
+ */
+export function PageHeroFrame({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
     <div className={cn("relative isolate h-20 overflow-hidden bg-footer tablet:h-25 laptop:h-30", className)}>
       <Image
@@ -44,44 +52,7 @@ export function PageHero({
         sizes="100vw"
         className="-z-10 object-cover object-left" // dark texture on the left keeps the crumbs legible at every width
       />
-      <Container className="flex h-full items-center">
-        <Breadcrumb>
-          <BreadcrumbList className="gap-2 text-copy text-muted-foreground tablet:text-lead">
-            {home && (
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild className="tap-target grid place-items-center hover:text-primary-foreground">
-                  <Link href={home.href ?? "/"} aria-label={home.label}>
-                    <HomeIcon aria-hidden className="size-5 stroke-[1.5] tablet:size-6" />
-                  </Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-            )}
-            {rest.map((c, i) => (
-              <Fragment key={`${c.label}-${i}`}>
-                <BreadcrumbSeparator className="text-muted-foreground">
-                  <ChevronRightIcon />
-                </BreadcrumbSeparator>
-                <BreadcrumbItem>
-                  {i === rest.length - 1 || !c.href ? (
-                    <BreadcrumbPage className="text-primary">{c.label}</BreadcrumbPage>
-                  ) : (
-                    <BreadcrumbLink asChild className="tap-target flex items-center hover:text-primary-foreground">
-                      <Link href={c.href}>{c.label}</Link>
-                    </BreadcrumbLink>
-                  )}
-                </BreadcrumbItem>
-              </Fragment>
-            ))}
-          </BreadcrumbList>
-        </Breadcrumb>
-      </Container>
-      {jsonLd && (
-        <script
-          type="application/ld+json"
-          // Escape "<" so a crumb label can't close the script tag (Next.js JSON-LD guide).
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
-        />
-      )}
+      <Container className="flex h-full items-center">{children}</Container>
     </div>
   );
 }

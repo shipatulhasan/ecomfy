@@ -12,7 +12,7 @@ import { siteConfig } from "@/lib/config/site";
 export function SiteFooter() {
   const { description, phone, email, footerGroups, copyright, paymentBadges } = siteConfig;
   return (
-    <footer className="bg-footer text-footer-muted">
+    <footer data-slot="site-footer" className="bg-footer text-footer-muted">
       <Container className="grid grid-cols-2 gap-x-6 gap-y-10 py-12 tablet:grid-cols-4 laptop:grid-cols-[448fr_224fr_225fr_223fr_200fr] laptop:gap-x-0 laptop:py-15">
         <div className="col-span-2 flex flex-col gap-4 tablet:col-span-4 laptop:col-span-1 laptop:pr-28">
           <Logo tone="light" className="self-start" />

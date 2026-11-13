@@ -140,8 +140,8 @@ Below 1024px the storefront behaves like a native app. Laptop and desktop follow
 ## Folders
 
 - `app/(shop)`: storefront.
-- `app/(auth)`: sign-in / sign-up.
-- `app/(account)`: customer account, which requires a session.
+- `app/(shop)/(auth)`: sign-in / sign-up / forgot + reset password (inside the storefront chrome).
+- `app/(shop)/(account)/account`: customer account, which requires a session.
 - `app/admin`: admin panel.
 - `components/ui`: shadcn primitives. Vendored: add with `pnpm dlx shadcn@latest add <name>` and don't hand-edit.
 - `components/shop`, `components/admin`, `components/shared`: custom components (see `designs/DESIGN.md`).

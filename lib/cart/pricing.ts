@@ -68,13 +68,23 @@ export function lineIssue(quantity: number, stock: number, available = true): Li
   return null;
 }
 
-/** Minimum-spend message, or null when the coupon's minimum is met. */
-export function couponMinimumProblem(coupon: CouponRule, subtotalCents: number): string | null {
+/**
+ * Minimum-spend message, or null when the coupon's minimum is met. Client callers
+ * pass `useCurrency().format` so the shortfall shows in the visitor's currency.
+ */
+export function couponMinimumProblem(
+  coupon: CouponRule,
+  subtotalCents: number,
+  format: (poisha: number) => string = formatPrice,
+): string | null {
   if (coupon.minSubtotalCents && subtotalCents < coupon.minSubtotalCents) {
-    return `Spend ${formatPrice(coupon.minSubtotalCents - subtotalCents)} more to use ${coupon.code}`;
+    return `Spend ${format(coupon.minSubtotalCents - subtotalCents)} more to use ${coupon.code}`;
   }
   return null;
 }
+
+/** Stock a cart / checkout may still take: on hand minus what open orders hold. */
+export const availableStock = (v: { stock: number; reserved: number }) => Math.max(0, v.stock - v.reserved);
 
 export function couponDiscount(coupon: CouponRule, subtotalCents: number): number {
   if (subtotalCents <= 0) return 0;

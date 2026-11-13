@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import { MAX_CART_QTY } from "@/lib/config/product";
+import { availableStock } from "./pricing";
 
 /**
  * Fold a guest cart and a guest wishlist into a user's account on sign-in / sign-up
@@ -35,7 +36,7 @@ async function mergeCart(userId: string, guestToken: string) {
         id: true,
         userId: true,
         couponId: true,
-        items: { select: { variantId: true, quantity: true, variant: { select: { stock: true } } } },
+        items: { select: { variantId: true, quantity: true, variant: { select: { stock: true, reserved: true } } } },
       },
     });
     if (!guest || guest.userId) return;
@@ -49,7 +50,7 @@ async function mergeCart(userId: string, guestToken: string) {
     const existing = new Map(userCart.items.map((i) => [i.variantId, i.quantity]));
 
     for (const item of guest.items) {
-      const cap = Math.min(item.variant.stock, MAX_CART_QTY);
+      const cap = Math.min(availableStock(item.variant), MAX_CART_QTY);
       if (cap <= 0) continue;
       const quantity = Math.min(cap, (existing.get(item.variantId) ?? 0) + item.quantity);
       await tx.cartItem.upsert({

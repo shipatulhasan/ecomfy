@@ -7,6 +7,7 @@ import { Suspense } from "react";
 import { cn } from "@/lib/utils";
 import { CartCountBadge, isActive } from "../header-client";
 import { useCart } from "../cart/cart-provider";
+import { useShopState } from "../shop-state";
 
 type Tab = { label: string; href: string; icon: LucideIcon; also?: readonly string[] };
 
@@ -15,11 +16,11 @@ const tabs: readonly Tab[] = [
   { label: "Shop", href: "/shop", icon: StoreIcon, also: ["/product"] },
   { label: "Search", href: "/search", icon: SearchIcon },
   { label: "Cart", href: "/cart", icon: HandbagIcon },
-  { label: "Account", href: "/account", icon: UserRoundIcon, also: ["/wishlist"] },
+  { label: "Account", href: "/account", icon: UserRoundIcon, also: ["/wishlist", "/sign-in", "/sign-up"] },
 ];
 
 /** Routes that hide the tab bar (focused flows with their own sticky action). */
-const HIDDEN_ON = ["/checkout"] as const;
+const HIDDEN_ON = ["/checkout", "/sign-in", "/sign-up", "/forgot-password", "/reset-password"] as const;
 
 /**
  * Native-style tab bar, mobile/tablet only (`laptop:hidden`). Laptop and desktop use
@@ -51,6 +52,9 @@ function ActiveBottomNav() {
 
 function BottomNavBar({ pathname }: { pathname: string | null }) {
   const { ready, cart } = useCart();
+  const shop = useShopState();
+  // Signed out → the Account tab opens Sign In (until the session is known it stays /account).
+  const accountHref = shop.ready && !shop.user ? "/sign-in" : "/account";
 
   return (
     <nav
@@ -62,10 +66,11 @@ function BottomNavBar({ pathname }: { pathname: string | null }) {
         {tabs.map(({ label, href, icon: Icon, also = [] }) => {
           const active = pathname !== null && [href, ...also].some((h) => isActive(pathname, h));
           const isCart = href === "/cart";
+          const target = href === "/account" ? accountHref : href;
           return (
             <li key={href} className="flex">
               <Link
-                href={href}
+                href={target}
                 prefetch
                 aria-current={active ? "page" : undefined}
                 aria-label={isCart && ready && cart.totals.count > 0 ? `Cart, ${cart.totals.count} items` : undefined}

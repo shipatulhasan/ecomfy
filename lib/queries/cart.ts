@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/db";
-import { buildCartView, couponMinimumProblem, EMPTY_CART, lineIssue, type CartLine, type CartView } from "@/lib/cart/pricing";
+import { availableStock, buildCartView, EMPTY_CART, lineIssue, type CartLine, type CartView } from "@/lib/cart/pricing";
 import { cartWhere, resolveCartOwner, type CartOwner } from "@/lib/cart/owner";
 
 /**
@@ -40,6 +40,7 @@ export async function getCart(owner?: CartOwner | null): Promise<CartView> {
               priceCents: true,
               compareAtCents: true,
               stock: true,
+              reserved: true,
               product: {
                 select: {
                   id: true,
@@ -57,7 +58,9 @@ export async function getCart(owner?: CartOwner | null): Promise<CartView> {
   });
   if (!cart) return EMPTY_CART;
 
-  const lines: CartLine[] = cart.items.map(({ id, quantity, variant: v }) => ({
+  const lines: CartLine[] = cart.items.map(({ id, quantity, variant: v }) => {
+    const stock = availableStock(v);
+    return {
     id,
     variantId: v.id,
     productId: v.product.id,
@@ -68,19 +71,21 @@ export async function getCart(owner?: CartOwner | null): Promise<CartView> {
     unitCents: v.priceCents,
     compareAtCents: v.compareAtCents,
     quantity,
-    stock: v.stock,
+    stock,
     lineCents: v.priceCents * quantity,
-    issue: lineIssue(quantity, v.stock, v.product.status === "ACTIVE"),
-  }));
+    issue: lineIssue(quantity, stock, v.product.status === "ACTIVE"),
+    };
+  });
 
-  const subtotal = lines.reduce((s, l) => s + l.unitCents * l.quantity, 0);
+  // The minimum spend is checked by computeTotals (and shown in the visitor's
+  // currency by the coupon form), so `error` only carries availability problems.
   const coupon = cart.coupon
     ? {
         code: cart.coupon.code,
         type: cart.coupon.type,
         value: cart.coupon.value,
         minSubtotalCents: cart.coupon.minSubtotalCents,
-        error: couponAvailabilityProblem(cart.coupon) ?? couponMinimumProblem(cart.coupon, subtotal),
+        error: couponAvailabilityProblem(cart.coupon),
       }
     : null;
 

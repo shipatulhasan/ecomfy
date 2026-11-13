@@ -4,7 +4,7 @@ import { refresh } from "next/cache";
 import { prisma } from "@/lib/db";
 import { addVariantToCart } from "@/lib/cart/mutations";
 import { findCartId, resolveCartOwner } from "@/lib/cart/owner";
-import { couponMinimumProblem, maxLineQuantity, type CartView } from "@/lib/cart/pricing";
+import { availableStock, couponMinimumProblem, maxLineQuantity, type CartView } from "@/lib/cart/pricing";
 import { couponAvailabilityProblem, getCart } from "@/lib/queries/cart";
 import {
   addToCartSchema,
@@ -52,11 +52,11 @@ export async function updateQuantity(input: unknown): Promise<ActionResult<CartV
     const { owner, cartId } = await requireCart();
     const line = await prisma.cartItem.findFirst({
       where: { id: lineId, cartId },
-      select: { id: true, variant: { select: { stock: true } } },
+      select: { id: true, variant: { select: { stock: true, reserved: true } } },
     });
     if (!line) throw new ActionError("That item is no longer in your cart.");
 
-    const next = Math.min(quantity, maxLineQuantity(line.variant.stock));
+    const next = Math.min(quantity, maxLineQuantity(availableStock(line.variant)));
     if (next <= 0) {
       if (quantity > 0) throw new ActionError("This item is out of stock. Remove it to continue.");
       await prisma.cartItem.delete({ where: { id: line.id } });

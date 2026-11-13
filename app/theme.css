@@ -31,10 +31,14 @@
   --success: oklch(0.6617 0.2239 142.669); /* #00B207 */
   --success-soft: oklch(0.9258 0.0489 147.007); /* #D2F0D4 */
   --warning: oklch(0.7474 0.1801 57.364); /* #FF8A00 */
+  --warning-soft: oklch(0.9698 0.0226 71.792); /* #FFF3E5 */
+  --warning-strong: oklch(0.573 0.1381 57.33); /* #B35F00 */
   --sale: oklch(0.6361 0.1961 25.588); /* #EA4B48 */
   --sale-soft: oklch(0.9607 0.0163 22.081); /* #FDEEED */
   --info: oklch(0.6358 0.1981 256.018); /* #2388FF */
   --info-foreground: oklch(1 0 0); /* #FFFFFF */
+  --info-soft: oklch(0.9602 0.0194 252.878); /* #E9F3FF */
+  --info-strong: oklch(0.5007 0.1709 257.405); /* #0F5FC2 */
   --footer: oklch(0.2134 0 0); /* #191919 */
   --footer-foreground: oklch(1 0 0); /* #FFFFFF */
   --footer-muted: oklch(0.5999 0 0); /* #808080 */
@@ -199,10 +203,14 @@
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-strong: var(--warning-strong);
   --color-sale: var(--sale);
   --color-sale-soft: var(--sale-soft);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
+  --color-info-soft: var(--info-soft);
+  --color-info-strong: var(--info-strong);
   --color-footer: var(--footer);
   --color-footer-foreground: var(--footer-foreground);
   --color-footer-muted: var(--footer-muted);

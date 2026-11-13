@@ -1,6 +1,7 @@
 // Ecomfy data model. Fields are derived from the screens in designs/screens/.
 // Fields no screen shows are marked `// added:` with the reason.
-// Money is stored as integer cents (Decimal can't cross the server→client boundary).
+// Money is stored as integer cents of BDT, i.e. poisha (Decimal can't cross the
+// server→client boundary). `*Cents` names are kept; USD is display-only (lib/money.ts).
 
 generator client {
   provider = "prisma-client"
@@ -36,13 +37,17 @@ enum AddressKind {
   SHIPPING
 }
 
-/// Order Details tracker (received → processing → on the way → delivered) + admin chips.
+/// Order lifecycle. PENDING_PAYMENT: waiting on a gateway (expires after 30 min).
+/// PENDING_CONFIRMATION: COD placed, admin confirms → PROCESSING.
 enum OrderStatus {
-  PENDING
+  PENDING_PAYMENT
+  PENDING_CONFIRMATION
   PROCESSING
   SHIPPED
   DELIVERED
-  CANCELED
+  CANCELLED
+  EXPIRED
+  FAILED
 }
 
 /// Admin Order Management "Payment" (Paid/Unpaid) + Transaction status.
@@ -51,16 +56,30 @@ enum PaymentStatus {
   PAID
   FAILED
   REFUNDED
-  CANCELED
 }
 
-/// Checkout (Cash on Delivery, Paypal, Amazon Pay) + admin Transaction "Method" (CC, PayPal, Bank).
+/// Checkout payment methods, one provider each in lib/payments/.
 enum PaymentMethod {
-  CASH_ON_DELIVERY
-  PAYPAL
-  AMAZON_PAY
-  CARD
-  BANK_TRANSFER
+  BKASH
+  SSLCOMMERZ
+  COD
+}
+
+/// One gateway attempt (Payment row).
+enum PaymentAttemptStatus {
+  INITIATED
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+/// Stock held by an order: RESERVED (Variant.reserved) → COMMITTED (stock decremented) or RELEASED.
+enum StockState {
+  RESERVED
+  COMMITTED
+  RELEASED
 }
 
 enum CouponType {
@@ -139,6 +158,16 @@ model Verification {
   @@index([identifier])
 }
 
+/// Fixed-window rate-limit buckets (lib/rate-limit.ts). Shared by Better Auth's HTTP
+/// endpoints (customStorage) and the auth server actions (per IP and per IP + email).
+model RateLimitBucket {
+  key     String   @id
+  count   Int
+  resetAt DateTime
+
+  @@index([resetAt])
+}
+
 model Address {
   id          String      @id @default(cuid())
   userId      String
@@ -148,9 +177,10 @@ model Address {
   lastName    String
   companyName String?
   street      String
-  country     String
-  state       String
-  zip         String
+  city        String      @default("") // added: area / thana (Bangladesh-first checkout)
+  district    String // Checkout "District" (one of lib/config/districts.ts)
+  country     String      @default("Bangladesh")
+  zip         String // postcode
   email       String
   phone       String
   isDefault   Boolean     @default(false) // added: pick the address shown on User Dashboard
@@ -222,6 +252,7 @@ model Variant {
   priceCents     Int // "$17.28"
   compareAtCents Int? // struck-through "$48.00" → "64% Off"
   stock          Int      @default(0) // "In Stock" / "Out of Stock", admin "QTY", "Available (5,413)"
+  reserved       Int      @default(0) // added: held by unpaid/unshipped orders; available = stock - reserved
   isDefault      Boolean  @default(false) // added: variant shown on product cards
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -312,34 +343,81 @@ model Wishlist {
 // ─────────────────────────────── orders ───────────────────────────────
 
 model Order {
-  id              String        @id @default(cuid())
-  number          Int           @unique @default(autoincrement()) // "#4152", "#ORD0001"
-  userId          String?
-  user            User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
-  email           String // Checkout "Email"
-  phone           String // Checkout "Phone"
+  id                String        @id @default(cuid())
+  number            Int           @unique @default(autoincrement()) // "#4152", "#ORD0001"
+  orderNumber       String        @unique // added: "ECF-004152", also the first gateway transaction id
+  idempotencyKey    String        @unique // added: one order per checkout form submit
+  userId            String?
+  user              User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email             String // Checkout "Email"
+  phone             String // Checkout "Phone" (normalized 01XXXXXXXXX)
   /// Snapshot of Checkout billing fields (see lib/validations/address.ts).
-  billingAddress  Json
+  billingAddress    Json
   /// Snapshot; equals billing unless "Ship to a different address" is checked.
-  shippingAddress Json
-  notes           String? // Checkout "Order Notes"
-  status          OrderStatus   @default(PENDING)
-  paymentStatus   PaymentStatus @default(UNPAID)
-  paymentMethod   PaymentMethod
-  subtotalCents   Int
-  discountCents   Int           @default(0) // Order Details "Discount"
-  shippingCents   Int           @default(0) // "Shipping: Free"
-  totalCents      Int
-  couponId        String?
-  coupon          Coupon?       @relation(fields: [couponId], references: [id], onDelete: SetNull)
-  couponCode      String? // added: snapshot in case the coupon is deleted
-  items           OrderItem[]
-  createdAt       DateTime      @default(now()) // Order History "Date"
-  updatedAt       DateTime      @updatedAt
+  shippingAddress   Json
+  district          String        @default("") // added: shipping district (zone + COD rules)
+  notes             String? // Checkout "Order Notes"
+  status            OrderStatus   @default(PENDING_CONFIRMATION)
+  paymentStatus     PaymentStatus @default(UNPAID)
+  paymentMethod     PaymentMethod
+  subtotalCents     Int
+  discountCents     Int           @default(0) // Order Details "Discount"
+  shippingCents     Int           @default(0) // "Shipping: Free"
+  codFeeCents       Int           @default(0) // added: Cash on Delivery fee
+  totalCents        Int // charged amount (BDT poisha)
+  currency          String        @default("BDT") // added: charge currency
+  displayCurrency   String        @default("BDT") // added: currency the customer saw
+  fxRate            Decimal       @default(1) @db.Decimal(10, 4) // added: USD→BDT at order time
+  displayTotalCents Int           @default(0) // added: total in displayCurrency cents
+  shippingZoneName  String? // added: snapshot ("Inside Dhaka")
+  deliveryEstimate  String? // added: snapshot ("1–2 days")
+  stockState        StockState    @default(COMMITTED) // added: reservation lifecycle
+  codFlagged        Boolean       @default(false) // added: phone had cancelled COD orders
+  codFlagReason     String?
+  placedIp          String?
+  cartId            String? // added: cart to clear once paid (guests have no userId)
+  expiresAt         DateTime? // added: PENDING_PAYMENT deadline
+  paidAt            DateTime?
+  couponId          String?
+  coupon            Coupon?       @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  couponCode        String? // added: snapshot in case the coupon is deleted
+  items             OrderItem[]
+  payments          Payment[]
+  createdAt         DateTime      @default(now()) // Order History "Date"
+  updatedAt         DateTime      @updatedAt
 
   @@index([userId, createdAt])
-  @@index([status])
+  @@index([status, expiresAt])
+  @@index([phone, paymentMethod, createdAt])
   @@index([createdAt])
+}
+
+/// Every gateway attempt for an order (a retry is a new row on the same order).
+model Payment {
+  id          String               @id @default(cuid())
+  orderId     String
+  order       Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method      PaymentMethod
+  attempt     Int
+  /// Gateway transaction id: orderNumber for attempt 1, `${orderNumber}-${attempt}` after.
+  reference   String               @unique
+  amountCents Int
+  currency    String               @default("BDT")
+  status      PaymentAttemptStatus @default(INITIATED)
+  paymentId   String?              @unique // bKash paymentID
+  trxId       String? // bKash trxID
+  sessionKey  String? // SSLCommerz sessionkey
+  valId       String? // SSLCommerz val_id
+  bankTranId  String? // SSLCommerz bank_tran_id
+  failReason  String?
+  /// Redacted gateway request/response log (lib/payments/log.ts).
+  raw         Json                 @default("[]")
+  completedAt DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@unique([orderId, attempt])
+  @@index([orderId])
 }
 
 model OrderItem {
@@ -382,4 +460,42 @@ model NewsletterSubscriber {
   id        String   @id @default(cuid())
   email     String   @unique
   createdAt DateTime @default(now())
+}
+
+// ───────────────────────────── settings ─────────────────────────────
+
+/// Store settings, a single row (id "default"). Read via getStoreSettings() (cacheTag "settings").
+model Settings {
+  id                   String   @id @default("default")
+  usdToBdtRate         Decimal  @default(123) @db.Decimal(10, 4) // BDT per 1 USD (display only)
+  codEnabled           Boolean  @default(true)
+  codFeeCents          Int      @default(0)
+  codMaxOrderCents     Int? // null = no limit
+  codAllowedDistricts  String[] // empty = every district
+  codMaxPerPhonePerDay Int      @default(3)
+  bkashEnabled         Boolean  @default(true)
+  sslcommerzEnabled    Boolean  @default(true)
+  updatedAt            DateTime @updatedAt
+}
+
+/// Shipping rates by district. The `isFallback` zone covers districts no other zone lists.
+model ShippingZone {
+  id         String   @id @default(cuid())
+  name       String // "Inside Dhaka"
+  rateCents  Int
+  districts  String[]
+  isFallback Boolean  @default(false)
+  etaText    String // "1–2 days"
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+/// Cached gateway auth tokens shared across server instances (bKash allows 2 grants/hour).
+model GatewayToken {
+  provider     String   @id // "bkash"
+  idToken      String
+  refreshToken String
+  expiresAt    DateTime
+  updatedAt    DateTime @updatedAt
 }

@@ -11,7 +11,7 @@ import { NewsletterForm } from "./newsletter-form";
 export function NewsletterBand() {
   const { newsletter, social } = siteConfig;
   return (
-    <section aria-labelledby="newsletter-title" className="bg-muted">
+    <section data-slot="newsletter-band" aria-labelledby="newsletter-title" className="bg-muted">
       <Container className="flex flex-col gap-6 py-8 laptop:flex-row laptop:items-center laptop:gap-10 laptop:pt-10 laptop:pb-11.25">
         <div className="laptop:max-w-105 laptop:flex-1">
           <h2 id="newsletter-title" className="text-h3">

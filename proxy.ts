@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
+import { safeCallbackUrl } from "@/lib/callback-url";
 
 /**
- * Proxy (runs on the Node.js runtime) for two prefixes:
+ * Proxy (runs on the Node.js runtime).
  *
  * - /quick/[slug]: the Product Quick View URL. Soft navigations from a product card
  *   are router fetches and must reach the intercepted modal route, so they pass
@@ -11,12 +12,18 @@ import { auth } from "@/lib/auth";
  *   app/(shop)/quick/[slug] redirects too, but under Cache Components that one
  *   streams (200 + meta refresh), so this gives a real HTTP redirect.
  *
- * - /admin: first line of defense. The authoritative check is requireAdmin() in
- *   app/admin/layout.tsx, and every admin server action must call requireAdmin()
- *   itself — Proxy coverage is not enough on its own.
+ * - /account/** needs a session; /admin/** needs role ADMIN. Signed-out visitors go
+ *   to /sign-in?callbackUrl=<where they were going>; signed-in customers on /admin go home.
+ *
+ * - /sign-in, /sign-up: signed-in users go to their callbackUrl (same-site only) or
+ *   /account. Forgot/reset password stay reachable (a reset link works signed in too).
+ *
+ * This is the first line of defense only. The authoritative checks are
+ * requireUser() / requireAdmin() in the account and admin layouts, and every
+ * server action re-checks the session itself.
  */
 export async function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname, search, searchParams } = request.nextUrl;
 
   if (pathname.startsWith("/quick/")) {
     // Next strips its RSC headers before Proxy runs, so tell router fetches apart by
@@ -28,15 +35,26 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL(`/product/${slug}`, request.url), 307);
   }
 
-  const session = await auth.api.getSession({ headers: request.headers });
+  const isAuthPage = pathname === "/sign-in" || pathname === "/sign-up";
+  // Protected areas skip the signed cookie cache (one Session lookup), so a revoked
+  // session (password reset, sign out elsewhere) gets an HTTP redirect at once.
+  const session = await auth.api.getSession({
+    headers: request.headers,
+    query: { disableCookieCache: !isAuthPage },
+  });
+
+  if (isAuthPage) {
+    if (!session) return NextResponse.next();
+    return NextResponse.redirect(new URL(safeCallbackUrl(searchParams.get("callbackUrl")), request.url));
+  }
 
   if (!session) {
     const url = new URL("/sign-in", request.url);
-    url.searchParams.set("next", pathname);
+    url.searchParams.set("callbackUrl", `${pathname}${search}`);
     return NextResponse.redirect(url);
   }
 
-  if (session.user.role !== "ADMIN") {
+  if (pathname.startsWith("/admin") && session.user.role !== "ADMIN") {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
@@ -44,5 +62,11 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/quick/:path*"],
+  matcher: [
+    "/admin/:path*",
+    "/account/:path*",
+    "/quick/:path*",
+    "/sign-in",
+    "/sign-up",
+  ],
 };

@@ -11,9 +11,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { siteConfig } from "@/lib/config/site";
+import { CurrencySwitcher } from "@/components/shared/currency-switcher";
 import { getCategories } from "@/lib/queries/catalog";
 import { CartDrawer } from "./cart/cart-drawer";
-import { AuthLinks, NavLinks, WishlistLink } from "./header-client";
+import { AuthLinks, HeaderBackButton, NavLinks, WishlistLink } from "./header-client";
 
 /**
  * Storefront header (Figma "Navigation" 1920×191): green top bar, main bar
@@ -46,7 +47,7 @@ function TopBar() {
         </p>
         <div className="flex items-center gap-5">
           <Picker label="Language" options={siteConfig.languages} />
-          <Picker label="Currency" options={siteConfig.currencies} />
+          <CurrencySwitcher />
           <span aria-hidden className="h-4 w-px bg-primary-foreground/30" />
           <AuthLinks />
         </div>
@@ -55,7 +56,7 @@ function TopBar() {
   );
 }
 
-/** Language / currency (display only until i18n and multi-currency exist). */
+/** Language (display only until i18n exists). Currency: <CurrencySwitcher>. */
 function Picker({ label, options }: { label: string; options: readonly string[] }) {
   return (
     <DropdownMenu>
@@ -103,6 +104,7 @@ function MainBar() {
   return (
     <div className="border-b border-border laptop:border-b-0">
       <Container className="flex h-16 items-center gap-3 laptop:h-23.25 laptop:justify-between">
+        <HeaderBackButton />
         <Logo />
         <SearchForm className="hidden laptop:block laptop:max-w-124.5 laptop:flex-none laptop:basis-124.5" />
         <div className="ml-auto flex items-center gap-1 laptop:ml-0 laptop:gap-4">

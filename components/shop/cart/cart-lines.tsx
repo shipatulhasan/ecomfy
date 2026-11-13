@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { maxLineQuantity, type CartLine } from "@/lib/cart/pricing";
 import { cartCopy } from "@/lib/config/cart";
 import { laptopSizes } from "@/lib/image-sizes";
-import { formatPrice } from "@/lib/money";
+import { Money } from "@/components/shared/money";
 import { cn } from "@/lib/utils";
 import { QuantityStepper } from "../product/quantity-stepper";
 import { isTempLine, useCart } from "./cart-provider";
@@ -104,12 +104,12 @@ function CartTableRow({ line }: { line: CartLine }) {
           </div>
         </div>
       </TableCell>
-      <TableCell className="px-0 py-3 text-lead text-foreground">{formatPrice(line.unitCents)}</TableCell>
+      <TableCell className="px-0 py-3 text-lead text-foreground"><Money cents={line.unitCents} /></TableCell>
       <TableCell className="px-0 py-3">
         <LineStepper line={line} onChange={(q) => setQuantity(line, q)} disabled={pending} />
       </TableCell>
       <TableCell className="px-0 py-3 text-lead font-medium text-foreground tabular-nums">
-        {formatPrice(line.lineCents)}
+        <Money cents={line.lineCents} />
       </TableCell>
       <TableCell className="px-0 py-3 text-right">
         <RemoveButton label={cartCopy.remove(line.name)} onClick={() => remove(line)} disabled={pending} />
@@ -211,7 +211,7 @@ export function CartLineCards({ lines }: { lines: CartLine[] }) {
                 </Link>
               </div>
               <p className="text-caption text-muted-foreground">
-                {formatPrice(line.unitCents)} / {line.variantName}
+                <Money cents={line.unitCents} /> / {line.variantName}
               </p>
               {line.issue && (
                 <p role="status" className="text-caption font-medium text-sale">
@@ -220,7 +220,7 @@ export function CartLineCards({ lines }: { lines: CartLine[] }) {
               )}
               <div className="mt-auto flex items-center justify-between gap-2 pt-1">
                 <LineStepper line={line} onChange={(q) => setQuantity(line, q)} disabled={pending} compact />
-                <span className="text-copy font-semibold text-foreground tabular-nums">{formatPrice(line.lineCents)}</span>
+                <span className="text-copy font-semibold text-foreground tabular-nums"><Money cents={line.lineCents} /></span>
               </div>
             </div>
             <RemoveButton

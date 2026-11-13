@@ -136,7 +136,7 @@ function WriteReview({
       id: "review-sign-in",
       action: {
         label: productCopy.signIn,
-        onClick: () => router.push(`/sign-in?next=${encodeURIComponent(`${pathname}?tab=reviews`)}`),
+        onClick: () => router.push(`/sign-in?callbackUrl=${encodeURIComponent(`${pathname}?tab=reviews`)}`),
       },
     });
 

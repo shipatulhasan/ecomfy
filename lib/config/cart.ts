@@ -3,7 +3,10 @@
  * (designs/screens/web/Shopping_Card_Popup.png, Shopping_Cart.png, Wishlist.png).
  */
 
-/** Flat shipping. The design shows "Shipping: Free" on every cart. */
+/**
+ * Shipping on the cart. Rates depend on the district, so the cart shows
+ * "Calculated at checkout" and checkout adds the zone rate (lib/checkout/pricing.ts).
+ */
 export const SHIPPING_CENTS = 0;
 
 /** Quantity stepper on /cart: wait this long after the last tap before saving. */
@@ -42,9 +45,11 @@ export const cartCopy = {
   discountLabel: (code: string) => `Discount (${code}):`,
   shippingLabel: "Shipping:",
   free: "Free",
+  shippingAtCheckout: "Calculated at checkout",
   totalLabel: "Total:",
   proceed: "Proceed to checkout",
   fixIssues: "Fix the items marked above to continue.",
+  stockNotice: "Some items in your cart changed while you were checking out. Review the items marked below, then continue to checkout.",
   removed: (name: string) => `${name} removed from cart`,
   undo: "Undo",
   added: (name: string, qty: number) => (qty > 1 ? `${qty} × ${name} added to cart` : `${name} added to cart`),

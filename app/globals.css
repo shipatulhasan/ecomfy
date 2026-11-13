@@ -76,6 +76,21 @@
   }
 }
 
+/* App screens below laptop (`data-app-screen`): no newsletter band or footer.
+   - "focus": sign in / sign up / password reset, full-screen forms (the tab bar
+     isn't rendered there either: bottom-nav HIDDEN_ON);
+   - "account": the /account profile screen and its sub-pages (tab bar stays).
+   Laptop+ keeps the PNG chrome. */
+:root:has([data-app-screen]) {
+  & [data-slot="newsletter-band"],
+  & [data-slot="site-footer"] {
+    display: none;
+    @variant laptop {
+      display: revert;
+    }
+  }
+}
+
 /* Container side padding that also clears landscape notches (env() is 0 on desktop). */
 @utility px-safe-gutter {
   padding-inline-start: max(var(--gutter), env(safe-area-inset-left));
@@ -382,6 +397,15 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * Currency (lib/money.ts): <Money> renders BDT and USD; html[data-currency] (set before
+ * paint from the cookie, app/layout.tsx) picks one. BDT unless USD is chosen.
+ */
+html[data-currency="USD"] [data-cur="BDT"],
+html:not([data-currency="USD"]) [data-cur="USD"] {
+  display: none;
 }
 
 @layer base {

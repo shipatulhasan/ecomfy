@@ -14,9 +14,8 @@ export const siteConfig = {
   storeLocation: "Store Location: House 15, Road 7, Dhanmondi, Dhaka 1205",
   phone: { label: "(+880) 2-58812345", href: "tel:+880258812345" },
   email: { label: "hello@ecofy.com", href: "mailto:hello@ecofy.com" },
-  // Display-only until i18n / multi-currency exist.
+  // Display-only until i18n exists. Currencies: lib/money.ts CURRENCIES.
   languages: ["Eng", "Bangla"],
-  currencies: ["BDT", "USD"],
   mainNav: [
     { label: "Home", href: "/" },
     { label: "Shop", href: "/shop" },
@@ -90,7 +89,6 @@ export const siteConfig = {
   phone: NavLink;
   email: NavLink;
   languages: readonly string[];
-  currencies: readonly string[];
   mainNav: readonly NavLink[];
   footerGroups: readonly { title: string; links: readonly NavLink[] }[];
   social: readonly { network: SocialNetwork; label: string; href: string }[];

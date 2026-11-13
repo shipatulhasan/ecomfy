@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { AdaptiveSheet } from "@/components/shared/adaptive-sheet";
 import { cartCopy, wishlistCopy } from "@/lib/config/cart";
 import type { WishlistRow } from "@/lib/queries/wishlist";
-import { formatPrice } from "@/lib/money";
+import { useCurrency } from "@/components/shared/currency-provider";
 import { cn } from "@/lib/utils";
 import { useCart } from "../cart/cart-provider";
 import { VariantSelector } from "../product/variant-selector";
@@ -17,6 +17,7 @@ import { VariantSelector } from "../product/variant-selector";
  */
 export function WishlistAddButton({ row, className }: { row: WishlistRow; className?: string }) {
   const cart = useCart();
+  const { format } = useCurrency();
   const [open, setOpen] = useState(false);
   const [choice, setChoice] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -97,7 +98,7 @@ export function WishlistAddButton({ row, className }: { row: WishlistRow; classN
           onClick={() => chosen && add(chosen.id, () => setOpen(false))}
           className="press flex h-12 w-full items-center justify-center rounded-full bg-primary text-lead font-semibold text-primary-foreground hover:bg-brand-dark disabled:opacity-50"
         >
-          {chosen ? `${wishlistCopy.addToCart} · ${formatPrice(chosen.priceCents)}` : wishlistCopy.chooseTitle}
+          {chosen ? `${wishlistCopy.addToCart} · ${format(chosen.priceCents)}` : wishlistCopy.chooseTitle}
         </button>
       }
     >

@@ -7,7 +7,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { shopContent } from "@/lib/config/shop";
-import { formatPriceWhole } from "@/lib/money";
+import { formatMoneyWhole } from "@/lib/money";
 import type { ShopFilterOptions } from "@/lib/queries/products";
 import { DEFAULT_SORT, SHOP_SORTS, ShopParam, type ShopSort } from "@/lib/shop-params";
 import { cn } from "@/lib/utils";
@@ -99,7 +99,7 @@ function PriceSlider({ bounds, initial }: { bounds: ShopFilterOptions["price"]; 
       <p className="text-copy text-text-body" aria-live="polite">
         {shopContent.filters.priceLabel}{" "}
         <span className="font-medium text-foreground">
-          {formatPriceWhole(value[0] * 100)} — {formatPriceWhole(value[1] * 100)}
+          {formatMoneyWhole(value[0] * 100)} — {formatMoneyWhole(value[1] * 100)}
         </span>
       </p>
     </div>

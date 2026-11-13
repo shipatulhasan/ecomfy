@@ -24,6 +24,8 @@ const sizes = {
   wide: "[--rail-item:85%] tablet:[--rail-item:48%]",
   /** Partner logos: 30% / 22%. */
   logo: "[--rail-item:30%] tablet:[--rail-item:22%]",
+  /** Stat tiles (account profile quick stats): a peek on phones, exactly three across on tablet. */
+  stat: "[--rail-item:40%] tablet:[--rail-item:calc((100%-2rem)/3)]",
   /** Chips size to their content. */
   chip: "[--rail-item:auto]",
 } as const;

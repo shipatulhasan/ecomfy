@@ -47,3 +47,5 @@ next-env.d.ts
 # seed images copied from designs/assets by scripts/sync-assets.ts
 /public/seed
 /designs
+# uploaded files in dev (lib/avatars.ts → UPLOAD_DIR)
+/.data

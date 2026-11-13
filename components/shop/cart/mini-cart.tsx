@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cartCopy } from "@/lib/config/cart";
 import { laptopSizes } from "@/lib/image-sizes";
-import { formatPrice } from "@/lib/money";
+import { Money } from "@/components/shared/money";
 import { cn } from "@/lib/utils";
 import { isTempLine, useCart } from "./cart-provider";
 import { CartLineImage } from "./cart-line-image";
@@ -110,7 +110,7 @@ export function MiniCartFooter() {
           {ready ? cartCopy.productCount(cart.totals.count) : <Skeleton className="h-4 w-20" />}
         </div>
         <div className="text-lead font-semibold text-foreground">
-          {ready ? formatPrice(cart.totals.subtotalCents) : <Skeleton className="h-4 w-16" />}
+          {ready ? <Money cents={cart.totals.subtotalCents} /> : <Skeleton className="h-4 w-16" />}
         </div>
       </div>
       <div className="flex flex-col gap-3">

@@ -40,7 +40,13 @@ function asset(group: "products" | "categories" | "banners" | "avatars", slug: s
   return entry;
 }
 
-const cents = (dollars: number) => Math.round(dollars * 100);
+/**
+ * Money is BDT poisha. seed-data.ts keeps the design's USD prices ($14.99 on the
+ * PNGs); they're converted at the seeded USD rate and rounded to whole taka, so
+ * switching the storefront to USD shows (about) the design's numbers again.
+ */
+const USD_RATE = 123;
+const cents = (dollars: number) => Math.round(dollars * USD_RATE) * 100;
 
 /** PDP Additional Information rows for products that don't list their own. */
 function defaultAttributes(p: SeedProduct, v: SeedVariant) {
@@ -63,16 +69,20 @@ type SeedUser = {
   phone?: string;
   image?: string;
   createdDaysAgo?: number;
+  /** Default true. */
+  emailVerified?: boolean;
 };
 
 // Admin = "Wade Warren" (admin General Info screen). Customers from the
 // User Dashboard, admin Customers table and PDP Customer Feedback.
 const users: SeedUser[] = [
-  { key: "admin", name: "Wade Warren", email: "admin@ecomfy.test", role: "ADMIN", phone: "(406) 555-0120", createdDaysAgo: 400 },
-  { key: "dianne", name: "Dianne Russell", email: "dianne.russell@ecomfy.test", phone: "(671) 555-0110", createdDaysAgo: 600 },
-  { key: "john", name: "John Doe", email: "john.doe@ecomfy.test", phone: "+1234567890", createdDaysAgo: 320 },
-  { key: "jane", name: "Jane Smith", email: "jane.smith@ecomfy.test", phone: "+1234567890", status: "INACTIVE", createdDaysAgo: 280 },
-  { key: "emily", name: "Emily Davis", email: "emily.davis@ecomfy.test", phone: "+1234567890", status: "VIP", createdDaysAgo: 500 },
+  { key: "admin", name: "Wade Warren", email: "admin@ecomfy.test", role: "ADMIN", phone: "01711000120", createdDaysAgo: 400 },
+  { key: "dianne", name: "Dianne Russell", email: "dianne.russell@ecomfy.test", phone: "01712555011", createdDaysAgo: 600 },
+  { key: "john", name: "John Doe", email: "john.doe@ecomfy.test", phone: "01813000001", createdDaysAgo: 320 },
+  { key: "jane", name: "Jane Smith", email: "jane.smith@ecomfy.test", phone: "01913000002", status: "INACTIVE", createdDaysAgo: 280 },
+  { key: "emily", name: "Emily Davis", email: "emily.davis@ecomfy.test", phone: "01613000003", status: "VIP", createdDaysAgo: 500 },
+  // Signed up but never verified the email (auth flows: verification banner / resend).
+  { key: "unverified", name: "Arif Hossain", email: "arif.hossain@ecomfy.test", phone: "01515000004", emailVerified: false, createdDaysAgo: 2 },
   // PDP reviewers: avatars cropped from the Customer Feedback PNG (Jane Cooper has the placeholder).
   { key: "kristin", name: "Kristin Watson", email: "kristin.watson@ecomfy.test", image: asset("avatars", "kristin-watson").url, createdDaysAgo: 200 },
   { key: "janec", name: "Jane Cooper", email: "jane.cooper@ecomfy.test", createdDaysAgo: 190 },
@@ -83,7 +93,7 @@ const users: SeedUser[] = [
 async function reset() {
   // Table names are the Prisma model names (no @@map).
   await prisma.$executeRawUnsafe(`
-    TRUNCATE "OrderItem", "Order", "CartItem", "Cart", "Wishlist", "Review", "ProductAttribute",
+    TRUNCATE "Payment", "OrderItem", "Order", "Settings", "ShippingZone", "GatewayToken", "CartItem", "Cart", "Wishlist", "Review", "ProductAttribute",
              "ProductImage", "Variant", "Product", "Category", "Address", "Coupon",
              "Session", "Account", "Verification", "User"
     RESTART IDENTITY CASCADE`);
@@ -101,7 +111,7 @@ async function seedUsers() {
         id,
         name: u.name,
         email: u.email,
-        emailVerified: true,
+        emailVerified: u.emailVerified ?? true,
         role: u.role ?? "CUSTOMER",
         status: u.status ?? "ACTIVE",
         phone: u.phone,
@@ -190,22 +200,27 @@ async function seedCatalog() {
 
 // ───────────────────────── orders ─────────────────────────
 
+// Shape of lib/validations/address.ts (Bangladesh-first checkout).
 const dianneAddress = {
   firstName: "Dianne",
   lastName: "Russell",
   companyName: "Zakirsoft",
-  street: "4140 Parker Rd. Allentown",
-  country: "United States",
-  state: "New Mexico",
-  zip: "31134",
+  street: "House 12, Road 5, Block C",
+  city: "Banani",
+  district: "Dhaka",
+  zip: "1213",
   email: "dianne.russell@ecomfy.test",
-  phone: "(671) 555-0110",
+  phone: "01712555011",
 };
 
 function addressFor(name: string, email: string, phone: string) {
   const [firstName = name, lastName = ""] = name.split(" ");
-  return { firstName, lastName, street: "123 Main St", country: "United States", state: "New York", zip: "10001", email, phone };
+  return { firstName, lastName, street: "45 CDA Avenue", city: "GEC", district: "Chattogram", zip: "4000", email, phone };
 }
+
+/** Matches the seeded shipping zones (Dhaka metro vs the rest). */
+const INSIDE_DHAKA = ["Dhaka", "Gazipur", "Narayanganj"];
+const shippingFor = (district: string) => (INSIDE_DHAKA.includes(district) ? 6000 : 12000);
 
 type Line = [slug: string, variant: string, qty: number];
 
@@ -217,6 +232,30 @@ async function main() {
   const catalog = await seedCatalog();
   console.log(`✔ ${users.length} users, ${categories.length} categories, ${products.length} products`);
 
+  // Store settings + shipping zones (lib/queries/settings.ts). Remote hill districts
+  // have no COD so "district not allowed" can be tested.
+  const { DISTRICTS } = await import("../lib/config/districts");
+  const noCod = ["Bandarban", "Rangamati", "Khagrachhari"];
+  await prisma.settings.create({
+    data: {
+      id: "default",
+      usdToBdtRate: USD_RATE,
+      codEnabled: true,
+      codFeeCents: 2000, // ৳20
+      codMaxOrderCents: 2_000_000, // ৳20,000
+      codAllowedDistricts: DISTRICTS.filter((d) => !noCod.includes(d)),
+      codMaxPerPhonePerDay: 3,
+      bkashEnabled: true,
+      sslcommerzEnabled: true,
+    },
+  });
+  await prisma.shippingZone.createMany({
+    data: [
+      { name: "Inside Dhaka", rateCents: 6000, districts: INSIDE_DHAKA, etaText: "1–2 days", sortOrder: 0 },
+      { name: "Outside Dhaka", rateCents: 12000, districts: [], isFallback: true, etaText: "3–5 days", sortOrder: 1 },
+    ],
+  });
+
   const coupon = await prisma.coupon.create({
     data: { code: "ECO20", type: "PERCENT", value: 20, isActive: true },
   });
@@ -224,7 +263,7 @@ async function main() {
   await prisma.coupon.createMany({
     data: [
       { code: "EXPIRED10", type: "PERCENT", value: 10, endsAt: new Date(Date.now() - 86_400_000) },
-      { code: "BIG50", type: "FIXED", value: 5000, minSubtotalCents: 20000 },
+      { code: "BIG50", type: "FIXED", value: 50000, minSubtotalCents: 2_000_000 }, // ৳500 off ৳20,000+
     ],
   });
 
@@ -239,6 +278,7 @@ async function main() {
     paymentStatus: Prisma.OrderCreateInput["paymentStatus"];
     paymentMethod: Prisma.OrderCreateInput["paymentMethod"];
     withCoupon?: boolean;
+    trx?: string;
   }) {
     const user = users.find((x) => x.key === opts.userKey)!;
     const address = opts.userKey === "dianne" ? dianneAddress : addressFor(user.name, user.email, user.phone ?? "+1234567890");
@@ -258,27 +298,75 @@ async function main() {
     });
     const subtotal = items.reduce((s, i) => s + i.subtotalCents, 0);
     const discount = opts.withCoupon ? Math.round(subtotal * 0.2) : 0;
+    const shipping = shippingFor(address.district);
+    const codFee = opts.paymentMethod === "COD" ? 2000 : 0;
+    const total = subtotal - discount + shipping + codFee;
+    const status = opts.status ?? "PENDING_CONFIRMATION";
+    // Open orders hold stock (Variant.reserved); finished ones took it or gave it back.
+    const stockState =
+      status === "PENDING_PAYMENT" || status === "PENDING_CONFIRMATION"
+        ? "RESERVED"
+        : status === "CANCELLED" || status === "FAILED" || status === "EXPIRED"
+          ? "RELEASED"
+          : "COMMITTED";
+    const orderNumber = `ECF-${String(opts.number).padStart(6, "0")}`;
+    const paid = opts.paymentStatus === "PAID";
+    const createdAt = daysAgo(opts.daysAgo);
     await prisma.order.create({
       data: {
         number: opts.number,
+        orderNumber,
+        idempotencyKey: `seed-${opts.number}`,
         userId: u[opts.userKey]!,
         email: address.email,
         phone: address.phone,
         billingAddress: address,
         shippingAddress: address,
-        status: opts.status,
+        district: address.district,
+        status,
         paymentStatus: opts.paymentStatus,
         paymentMethod: opts.paymentMethod,
         subtotalCents: subtotal,
         discountCents: discount,
-        shippingCents: 0,
-        totalCents: subtotal - discount,
+        shippingCents: shipping,
+        codFeeCents: codFee,
+        totalCents: total,
+        displayTotalCents: total,
+        shippingZoneName: INSIDE_DHAKA.includes(address.district) ? "Inside Dhaka" : "Outside Dhaka",
+        deliveryEstimate: INSIDE_DHAKA.includes(address.district) ? "1–2 days" : "3–5 days",
+        stockState,
+        expiresAt: status === "PENDING_PAYMENT" ? new Date(Date.now() + 25 * 60_000) : null,
+        paidAt: paid ? createdAt : null,
         couponId: opts.withCoupon ? coupon.id : null,
         couponCode: opts.withCoupon ? coupon.code : null,
-        createdAt: daysAgo(opts.daysAgo),
+        createdAt,
         items: { create: items },
+        payments: {
+          create: {
+            method: opts.paymentMethod!,
+            attempt: 1,
+            reference: orderNumber,
+            amountCents: total,
+            status: paid
+              ? "SUCCEEDED"
+              : status === "CANCELLED"
+                ? "CANCELLED"
+                : status === "FAILED" || opts.paymentStatus === "FAILED"
+                  ? "FAILED"
+                  : opts.paymentMethod === "COD"
+                    ? "PENDING"
+                    : "INITIATED",
+            trxId: paid && opts.paymentMethod === "BKASH" ? (opts.trx ?? `SEED${opts.number}`) : null,
+            bankTranId: paid && opts.paymentMethod === "SSLCOMMERZ" ? (opts.trx ?? `SEEDBANK${opts.number}`) : null,
+            completedAt: paid ? createdAt : null,
+            createdAt,
+          },
+        },
       },
     });
+    if (stockState === "RESERVED") {
+      for (const i of items) await prisma.variant.update({ where: { id: i.variantId }, data: { reserved: { increment: i.quantity } } });
+    }
   }
 
   // Dianne's Order History (order numbers from the screen; totals computed from lines).
@@ -297,7 +385,7 @@ async function main() {
     [1577, 175, [["corn", "1 kg", 1]], "DELIVERED"],
   ];
   for (const [number, ago, lines, status] of dianneOrders) {
-    await order({ number, userKey: "dianne", daysAgo: ago, lines, status, paymentStatus: "PAID", paymentMethod: "CASH_ON_DELIVERY" });
+    await order({ number, userKey: "dianne", daysAgo: ago, lines, status, paymentStatus: "PAID", paymentMethod: "COD" });
   }
   await order({
     number: 4152,
@@ -306,20 +394,25 @@ async function main() {
     lines: [["red-capsicum", "1 kg", 5], ["green-capsicum", "1 kg", 2], ["green-chili", "500 g", 10]],
     status: "PROCESSING",
     paymentStatus: "PAID",
-    paymentMethod: "PAYPAL",
+    paymentMethod: "SSLCOMMERZ",
     withCoupon: true,
   });
 
-  // Admin Order Management / Transaction mix (Paid/Unpaid; CC, PayPal, Bank; Complete/Pending/Canceled).
+  // Open / cancelled orders for the account Order History (2 pages of 12).
+  await order({ number: 9101, userKey: "dianne", daysAgo: 0, lines: [["green-apple", "1 kg", 2]], status: "PENDING_PAYMENT", paymentStatus: "UNPAID", paymentMethod: "BKASH" });
+  await order({ number: 9102, userKey: "dianne", daysAgo: 1, lines: [["corn", "1 kg", 3], ["red-tomatoes", "1 kg", 1]], status: "PENDING_CONFIRMATION", paymentStatus: "UNPAID", paymentMethod: "COD" });
+  await order({ number: 9103, userKey: "dianne", daysAgo: 12, lines: [["eggplant", "1 kg", 2]], status: "CANCELLED", paymentStatus: "UNPAID", paymentMethod: "COD" });
+
+  // Admin Order Management / Transaction mix (Paid/Unpaid; bKash, card/bank, COD; open/done/cancelled).
   const adminMix: Parameters<typeof order>[0][] = [
-    { number: 9001, userKey: "john", daysAgo: 1, lines: [["green-apple", "1 kg", 3]], status: "DELIVERED", paymentStatus: "PAID", paymentMethod: "CARD" },
-    { number: 9002, userKey: "john", daysAgo: 2, lines: [["fresh-indian-orange", "1 kg", 6]], status: "PENDING", paymentStatus: "UNPAID", paymentMethod: "PAYPAL" },
-    { number: 9003, userKey: "jane", daysAgo: 3, lines: [["big-potatoes", "1 kg", 2]], status: "DELIVERED", paymentStatus: "PAID", paymentMethod: "CARD" },
-    { number: 9004, userKey: "emily", daysAgo: 3, lines: [["green-apple", "1 kg", 4], ["eggplant", "500 g", 2]], status: "SHIPPED", paymentStatus: "PAID", paymentMethod: "BANK_TRANSFER" },
-    { number: 9005, userKey: "jane", daysAgo: 4, lines: [["corn", "1 kg", 2]], status: "CANCELED", paymentStatus: "CANCELED", paymentMethod: "CARD" },
-    { number: 9006, userKey: "emily", daysAgo: 5, lines: [["red-tomatoes", "1 kg", 5]], status: "PENDING", paymentStatus: "UNPAID", paymentMethod: "PAYPAL" },
-    { number: 9007, userKey: "john", daysAgo: 6, lines: [["fresh-cauliflower", "1 kg", 2]], status: "DELIVERED", paymentStatus: "PAID", paymentMethod: "BANK_TRANSFER" },
-    { number: 9008, userKey: "emily", daysAgo: 6, lines: [["chinese-cabbage", "1 kg", 8]], status: "DELIVERED", paymentStatus: "FAILED", paymentMethod: "CARD" },
+    { number: 9001, userKey: "john", daysAgo: 1, lines: [["green-apple", "1 kg", 3]], status: "DELIVERED", paymentStatus: "PAID", paymentMethod: "SSLCOMMERZ" },
+    { number: 9002, userKey: "john", daysAgo: 2, lines: [["fresh-indian-orange", "1 kg", 6]], status: "PENDING_CONFIRMATION", paymentStatus: "UNPAID", paymentMethod: "COD" },
+    { number: 9003, userKey: "jane", daysAgo: 3, lines: [["big-potatoes", "1 kg", 2]], status: "DELIVERED", paymentStatus: "PAID", paymentMethod: "BKASH" },
+    { number: 9004, userKey: "emily", daysAgo: 3, lines: [["green-apple", "1 kg", 4], ["eggplant", "500 g", 2]], status: "SHIPPED", paymentStatus: "PAID", paymentMethod: "SSLCOMMERZ" },
+    { number: 9005, userKey: "jane", daysAgo: 4, lines: [["corn", "1 kg", 2]], status: "CANCELLED", paymentStatus: "FAILED", paymentMethod: "BKASH" },
+    { number: 9006, userKey: "emily", daysAgo: 5, lines: [["red-tomatoes", "1 kg", 5]], status: "PENDING_CONFIRMATION", paymentStatus: "UNPAID", paymentMethod: "COD" },
+    { number: 9007, userKey: "john", daysAgo: 6, lines: [["fresh-cauliflower", "1 kg", 2]], status: "DELIVERED", paymentStatus: "PAID", paymentMethod: "BKASH" },
+    { number: 9008, userKey: "emily", daysAgo: 6, lines: [["chinese-cabbage", "1 kg", 8]], status: "FAILED", paymentStatus: "FAILED", paymentMethod: "SSLCOMMERZ" },
   ];
   for (const o of adminMix) await order(o);
 
@@ -395,7 +488,13 @@ async function main() {
 
   const orderCount = await prisma.order.count();
   console.log(`✔ ${orderCount} orders, 1 cart (4 lines), 4 wishlist items, ${chineseCabbageReviews.length + extra.length} reviews, coupons ECO20 / EXPIRED10 / BIG50`);
-  console.log(`\nSign in as admin@ecomfy.test or dianne.russell@ecomfy.test with SEED_PASSWORD.`);
+  console.log(`✔ settings (COD ৳20 fee, ৳20,000 max, no COD in ${noCod.join(" / ")}), zones Inside Dhaka ৳60 / Outside Dhaka ৳120`);
+  console.log("\nDemo accounts (password = SEED_PASSWORD from .env):");
+  console.table([
+    { role: "admin", email: "admin@ecomfy.test", password },
+    { role: "customer (orders, cart, wishlist)", email: "dianne.russell@ecomfy.test", password },
+    { role: "customer (email not verified)", email: "arif.hossain@ecomfy.test", password },
+  ]);
 }
 
 main()

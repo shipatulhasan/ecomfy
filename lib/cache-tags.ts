@@ -10,4 +10,6 @@ export const CacheTags = {
   productsInCategory: (categorySlug: string) => `category-products:${categorySlug}`,
   reviews: (productId: string) => `reviews:${productId}`,
   coupons: "coupons",
+  /** Store settings + shipping zones (lib/queries/settings.ts). */
+  settings: "settings",
 } as const;
