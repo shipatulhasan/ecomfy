@@ -1,0 +1,369 @@
+// Ecomfy data model. Fields are derived from the screens in designs/screens/.
+// Fields no screen shows are marked `// added:` with the reason.
+// Money is stored as integer cents (Decimal can't cross the server→client boundary).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── enums ─────────────────────────────
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+/// Admin → Customers table "Status" column.
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  VIP
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum AddressKind {
+  BILLING
+  SHIPPING
+}
+
+/// Order Details tracker (received → processing → on the way → delivered) + admin chips.
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELED
+}
+
+/// Admin Order Management "Payment" (Paid/Unpaid) + Transaction status.
+enum PaymentStatus {
+  UNPAID
+  PAID
+  FAILED
+  REFUNDED
+  CANCELED
+}
+
+/// Checkout (Cash on Delivery, Paypal, Amazon Pay) + admin Transaction "Method" (CC, PayPal, Bank).
+enum PaymentMethod {
+  CASH_ON_DELIVERY
+  PAYPAL
+  AMAZON_PAY
+  CARD
+  BANK_TRANSFER
+}
+
+enum CouponType {
+  PERCENT
+  FIXED
+}
+
+// ──────────────────── users & auth (Better Auth) ────────────────────
+
+model User {
+  id            String         @id
+  name          String
+  email         String         @unique
+  emailVerified Boolean        @default(false) // added: Better Auth core field
+  image         String?
+  role          Role           @default(CUSTOMER)
+  phone         String? // admin Customers "Phone", Settings "Phone Number"
+  dateOfBirth   DateTime? // admin General Info "Date of Birth"
+  bio           String? // admin General Info "Biography"
+  status        CustomerStatus @default(ACTIVE)
+  createdAt     DateTime       @default(now()) // admin Customer Details "Registration"
+  updatedAt     DateTime       @updatedAt
+
+  sessions  Session[]
+  accounts  Account[]
+  addresses Address[]
+  orders    Order[]
+  reviews   Review[]
+  wishlist  Wishlist[]
+  cart      Cart?
+
+  @@index([role])
+}
+
+model Session {
+  id        String   @id
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+model Address {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        AddressKind
+  firstName   String
+  lastName    String
+  companyName String?
+  street      String
+  country     String
+  state       String
+  zip         String
+  email       String
+  phone       String
+  isDefault   Boolean     @default(false) // added: pick the address shown on User Dashboard
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([userId])
+}
+
+// ───────────────────────────── catalog ─────────────────────────────
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique // added: URL segment
+  imageUrl  String?
+  sortOrder Int       @default(0) // added: order of Popular Categories grid / menu
+  createdAt DateTime  @default(now()) // admin Categories "Created Date"
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+}
+
+model Product {
+  id               String        @id @default(cuid())
+  name             String
+  slug             String        @unique // added: URL segment
+  code             String        @unique // admin Product List id ("021231")
+  shortDescription String? // PDP summary under price
+  description      String // PDP "Descriptions" tab
+  brand            String? // PDP "Brand"
+  productType      String? // PDP Additional Info "Type" (e.g. Organic)
+  tags             String[] // PDP "Tag"
+  videoUrl         String? // PDP Descriptions tab video
+  isFeatured       Boolean       @default(false) // Home "Featured Products"
+  dealEndsAt       DateTime? // Home "Hot Deals" countdown
+  status           ProductStatus @default(ACTIVE) // added: draft/archive without deleting
+  ratingAvg        Float         @default(0) // added: denormalized from Review for card stars
+  reviewCount      Int           @default(0) // added: denormalized "4 Review"
+  /// added: denormalized default-variant price for Shop sort/price filter (Prisma can't
+  /// order by a filtered relation). Set by the seed; admin product actions must keep it in sync.
+  priceCents       Int           @default(0)
+  categoryId       String
+  category         Category      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdAt        DateTime      @default(now()) // admin Product List "Date"
+  updatedAt        DateTime      @updatedAt
+
+  variants     Variant[]
+  images       ProductImage[]
+  reviews      Review[]
+  wishlistedBy Wishlist[]
+
+  @@index([categoryId])
+  @@index([status, isFeatured])
+  @@index([status, priceCents])
+}
+
+model Variant {
+  id             String   @id @default(cuid())
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku            String   @unique // PDP "SKU"
+  name           String // cart drawer "1 kg"
+  size           String? // admin Product List "Size"
+  color          String? // PDP Additional Info "Color"
+  weightGrams    Int? // PDP Additional Info "Weight"
+  priceCents     Int // "$17.28"
+  compareAtCents Int? // struck-through "$48.00" → "64% Off"
+  stock          Int      @default(0) // "In Stock" / "Out of Stock", admin "QTY", "Available (5,413)"
+  isDefault      Boolean  @default(false) // added: variant shown on product cards
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  @@index([productId])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  alt       String
+  width     Int // added: next/image needs intrinsic size
+  height    Int // added: next/image needs intrinsic size
+  position  Int     @default(0) // added: gallery thumbnail order
+
+  @@index([productId])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int // 1–5 stars
+  body      String
+  createdAt DateTime @default(now()) // "2 min ago"
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, userId]) // added: one review per customer per product
+  @@index([productId, createdAt])
+}
+
+// ─────────────────────────── cart & wishlist ───────────────────────────
+
+model Cart {
+  id         String     @id @default(cuid())
+  userId     String?    @unique
+  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestToken String?    @unique // added: carts for signed-out visitors (cookie)
+  couponId   String? // Shopping Cart "Coupon Code"
+  coupon     Coupon?    @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  items      CartItem[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model CartItem {
+  id        String   @id @default(cuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  variantId String
+  variant   Variant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantity  Int
+  createdAt DateTime @default(now())
+
+  @@unique([cartId, variantId])
+}
+
+model Wishlist {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, productId])
+}
+
+// ─────────────────────────────── orders ───────────────────────────────
+
+model Order {
+  id              String        @id @default(cuid())
+  number          Int           @unique @default(autoincrement()) // "#4152", "#ORD0001"
+  userId          String?
+  user            User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email           String // Checkout "Email"
+  phone           String // Checkout "Phone"
+  /// Snapshot of Checkout billing fields (see lib/validations/address.ts).
+  billingAddress  Json
+  /// Snapshot; equals billing unless "Ship to a different address" is checked.
+  shippingAddress Json
+  notes           String? // Checkout "Order Notes"
+  status          OrderStatus   @default(PENDING)
+  paymentStatus   PaymentStatus @default(UNPAID)
+  paymentMethod   PaymentMethod
+  subtotalCents   Int
+  discountCents   Int           @default(0) // Order Details "Discount"
+  shippingCents   Int           @default(0) // "Shipping: Free"
+  totalCents      Int
+  couponId        String?
+  coupon          Coupon?       @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  couponCode      String? // added: snapshot in case the coupon is deleted
+  items           OrderItem[]
+  createdAt       DateTime      @default(now()) // Order History "Date"
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id             String   @id @default(cuid())
+  orderId        String
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId      String?
+  variant        Variant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  productName    String // added: snapshot (product may change/be deleted)
+  variantName    String // added: snapshot
+  imageUrl       String? // added: snapshot
+  unitPriceCents Int // Order Details "Price"
+  quantity       Int // "x5"
+  subtotalCents  Int // "Subtotal"
+
+  @@index([orderId])
+}
+
+model Coupon {
+  id               String     @id @default(cuid())
+  code             String     @unique
+  type             CouponType
+  value            Int // percent (20 = 20%) or cents
+  minSubtotalCents Int? // added: no Coupon screen exists
+  maxUses          Int? // added
+  usedCount        Int        @default(0) // added
+  startsAt         DateTime? // added
+  endsAt           DateTime? // added
+  isActive         Boolean    @default(true) // added
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  carts            Cart[]
+  orders           Order[]
+}
+
+// ───────────────────────────── marketing ─────────────────────────────
+
+/// Storefront newsletter band (every shop page) and Newsletter popup.
+model NewsletterSubscriber {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+}

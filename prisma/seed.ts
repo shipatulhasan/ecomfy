@@ -1,0 +1,376 @@
+/**
+ * Dev seed — data mirrors the design screenshots (designs/screens).
+ * Run: pnpm db:seed  (copies designs/assets → public/seed first)
+ *
+ * Idempotent: TRUNCATEs every app table, then inserts. Refuses to run in production.
+ * Users are inserted directly (User + credential Account) with passwords hashed by
+ * Better Auth's own hashPassword, so they can sign in through the normal flow.
+ */
+import "dotenv/config";
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { hashPassword } from "better-auth/crypto";
+import { PrismaClient, type Prisma } from "../lib/generated/prisma/client";
+import { categories, chineseCabbageReviews, products, slugify } from "./seed-data";
+
+if (process.env.NODE_ENV === "production") {
+  throw new Error("Refusing to seed a production database.");
+}
+
+const connectionString = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+if (!connectionString) throw new Error("Set DATABASE_URL (and DIRECT_URL) in .env first.");
+const password = process.env.SEED_PASSWORD;
+if (!password || password.length < 8) {
+  throw new Error("Set SEED_PASSWORD (8+ chars) in .env — used for every seeded account.");
+}
+
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+
+// Real images cropped from the design PNGs (`pnpm assets:crop` → designs/assets/manifest.json).
+type ManifestEntry = { url: string; width: number; height: number };
+const manifest = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "../designs/assets/manifest.json"), "utf8"),
+) as Record<"products" | "categories" | "banners", Record<string, ManifestEntry>>;
+
+function asset(group: "products" | "categories", slug: string): ManifestEntry {
+  const entry = manifest[group][slug];
+  if (!entry) throw new Error(`No image for ${group}/${slug} in designs/assets/manifest.json — add it to scripts/crop-assets.ts`);
+  return entry;
+}
+
+const cents = (dollars: number) => Math.round(dollars * 100);
+const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000);
+
+// ───────────────────────── users ─────────────────────────
+
+type SeedUser = {
+  key: string;
+  name: string;
+  email: string;
+  role?: "ADMIN" | "CUSTOMER";
+  status?: "ACTIVE" | "INACTIVE" | "VIP";
+  phone?: string;
+  createdDaysAgo?: number;
+};
+
+// Admin = "Wade Warren" (admin General Info screen). Customers from the
+// User Dashboard, admin Customers table and PDP Customer Feedback.
+const users: SeedUser[] = [
+  { key: "admin", name: "Wade Warren", email: "admin@ecomfy.test", role: "ADMIN", phone: "(406) 555-0120", createdDaysAgo: 400 },
+  { key: "dianne", name: "Dianne Russell", email: "dianne.russell@ecomfy.test", phone: "(671) 555-0110", createdDaysAgo: 600 },
+  { key: "john", name: "John Doe", email: "john.doe@ecomfy.test", phone: "+1234567890", createdDaysAgo: 320 },
+  { key: "jane", name: "Jane Smith", email: "jane.smith@ecomfy.test", phone: "+1234567890", status: "INACTIVE", createdDaysAgo: 280 },
+  { key: "emily", name: "Emily Davis", email: "emily.davis@ecomfy.test", phone: "+1234567890", status: "VIP", createdDaysAgo: 500 },
+  { key: "kristin", name: "Kristin Watson", email: "kristin.watson@ecomfy.test", createdDaysAgo: 200 },
+  { key: "janec", name: "Jane Cooper", email: "jane.cooper@ecomfy.test", createdDaysAgo: 190 },
+  { key: "jacob", name: "Jacob Jones", email: "jacob.jones@ecomfy.test", createdDaysAgo: 150 },
+  { key: "ralph", name: "Ralph Edwards", email: "ralph.edwards@ecomfy.test", createdDaysAgo: 120 },
+];
+
+async function reset() {
+  // Table names are the Prisma model names (no @@map).
+  await prisma.$executeRawUnsafe(`
+    TRUNCATE "OrderItem", "Order", "CartItem", "Cart", "Wishlist", "Review",
+             "ProductImage", "Variant", "Product", "Category", "Address", "Coupon",
+             "Session", "Account", "Verification", "User"
+    RESTART IDENTITY CASCADE`);
+}
+
+async function seedUsers() {
+  const hash = await hashPassword(password!);
+  const ids: Record<string, string> = {};
+  for (const u of users) {
+    const id = randomUUID();
+    ids[u.key] = id;
+    const createdAt = daysAgo(u.createdDaysAgo ?? 30);
+    await prisma.user.create({
+      data: {
+        id,
+        name: u.name,
+        email: u.email,
+        emailVerified: true,
+        role: u.role ?? "CUSTOMER",
+        status: u.status ?? "ACTIVE",
+        phone: u.phone,
+        createdAt,
+        accounts: {
+          create: { id: randomUUID(), accountId: id, providerId: "credential", password: hash, createdAt },
+        },
+      },
+    });
+  }
+  return ids;
+}
+
+// ───────────────────────── catalog ─────────────────────────
+
+async function seedCatalog() {
+  const categoryIds: Record<string, string> = {};
+  for (const [i, c] of categories.entries()) {
+    const row = await prisma.category.create({
+      data: { name: c.name, slug: c.slug, sortOrder: i, imageUrl: asset("categories", c.slug).url, createdAt: daysAgo(365) },
+    });
+    categoryIds[c.slug] = row.id;
+  }
+
+  // slug → { productId, variants by name }
+  const catalog: Record<string, { id: string; name: string; image: string; variants: Record<string, { id: string; name: string; priceCents: number }> }> = {};
+
+  for (const [i, p] of products.entries()) {
+    const slug = slugify(p.name);
+    const img = asset("products", p.image ?? slug);
+    const defaultVariant = p.variants.find((v) => v.isDefault) ?? p.variants[0]!;
+    const image = img.url;
+    const code = String(21231 + i).padStart(6, "0"); // admin Product List shows "021231"
+    const product = await prisma.product.create({
+      data: {
+        name: p.name,
+        slug,
+        code,
+        shortDescription: p.shortDescription,
+        description: p.description!,
+        brand: p.brand,
+        productType: p.productType,
+        tags: p.tags ?? [],
+        isFeatured: p.isFeatured ?? false,
+        priceCents: cents(defaultVariant.price), // denormalized for Shop sort/filter
+        dealEndsAt: p.dealDays ? new Date(Date.now() + p.dealDays * 86_400_000) : null,
+        categoryId: categoryIds[p.category]!,
+        createdAt: daysAgo(90 - i),
+        // Main image first, then the gallery (PDP / Quick View thumbnails) in order.
+        images: {
+          create: [p.image ?? slug, ...(p.gallery ?? [])].map((s, position) => {
+            const a = asset("products", s);
+            return { url: a.url, alt: position === 0 ? p.name : `${p.name}, view ${position + 1}`, width: a.width, height: a.height, position };
+          }),
+        },
+        variants: {
+          create: p.variants.map((v, vi) => ({
+            sku: vi === 0 && p.sku ? p.sku : `${code}-${slugify(v.name)}`,
+            name: v.name,
+            weightGrams: v.weightGrams,
+            color: p.color,
+            priceCents: cents(v.price),
+            compareAtCents: v.compareAt ? cents(v.compareAt) : null,
+            stock: v.stock,
+            isDefault: v.isDefault ?? vi === 0,
+          })),
+        },
+      },
+      include: { variants: true },
+    });
+    catalog[slug] = {
+      id: product.id,
+      name: product.name,
+      image,
+      variants: Object.fromEntries(product.variants.map((v) => [v.name, { id: v.id, name: v.name, priceCents: v.priceCents }])),
+    };
+  }
+  return catalog;
+}
+
+// ───────────────────────── orders ─────────────────────────
+
+const dianneAddress = {
+  firstName: "Dianne",
+  lastName: "Russell",
+  companyName: "Zakirsoft",
+  street: "4140 Parker Rd. Allentown",
+  country: "United States",
+  state: "New Mexico",
+  zip: "31134",
+  email: "dianne.russell@ecomfy.test",
+  phone: "(671) 555-0110",
+};
+
+function addressFor(name: string, email: string, phone: string) {
+  const [firstName = name, lastName = ""] = name.split(" ");
+  return { firstName, lastName, street: "123 Main St", country: "United States", state: "New York", zip: "10001", email, phone };
+}
+
+type Line = [slug: string, variant: string, qty: number];
+
+async function main() {
+  console.log("Resetting tables…");
+  await reset();
+
+  const u = await seedUsers();
+  const catalog = await seedCatalog();
+  console.log(`✔ ${users.length} users, ${categories.length} categories, ${products.length} products`);
+
+  const coupon = await prisma.coupon.create({
+    data: { code: "ECO20", type: "PERCENT", value: 20, isActive: true },
+  });
+
+  await prisma.address.create({ data: { userId: u.dianne!, kind: "BILLING", isDefault: true, ...dianneAddress } });
+
+  async function order(opts: {
+    number: number;
+    userKey: string;
+    daysAgo: number;
+    lines: Line[];
+    status: Prisma.OrderCreateInput["status"];
+    paymentStatus: Prisma.OrderCreateInput["paymentStatus"];
+    paymentMethod: Prisma.OrderCreateInput["paymentMethod"];
+    withCoupon?: boolean;
+  }) {
+    const user = users.find((x) => x.key === opts.userKey)!;
+    const address = opts.userKey === "dianne" ? dianneAddress : addressFor(user.name, user.email, user.phone ?? "+1234567890");
+    const items = opts.lines.map(([slug, variantName, qty]) => {
+      const p = catalog[slug];
+      const v = p?.variants[variantName];
+      if (!p || !v) throw new Error(`Seed order references unknown ${slug} / ${variantName}`);
+      return {
+        variantId: v.id,
+        productName: p.name,
+        variantName: v.name,
+        imageUrl: p.image,
+        unitPriceCents: v.priceCents,
+        quantity: qty,
+        subtotalCents: v.priceCents * qty,
+      };
+    });
+    const subtotal = items.reduce((s, i) => s + i.subtotalCents, 0);
+    const discount = opts.withCoupon ? Math.round(subtotal * 0.2) : 0;
+    await prisma.order.create({
+      data: {
+        number: opts.number,
+        userId: u[opts.userKey]!,
+        email: address.email,
+        phone: address.phone,
+        billingAddress: address,
+        shippingAddress: address,
+        status: opts.status,
+        paymentStatus: opts.paymentStatus,
+        paymentMethod: opts.paymentMethod,
+        subtotalCents: subtotal,
+        discountCents: discount,
+        shippingCents: 0,
+        totalCents: subtotal - discount,
+        couponId: opts.withCoupon ? coupon.id : null,
+        couponCode: opts.withCoupon ? coupon.code : null,
+        createdAt: daysAgo(opts.daysAgo),
+        items: { create: items },
+      },
+    });
+  }
+
+  // Dianne's Order History (order numbers from the screen; totals computed from lines).
+  // #4152 matches Order Details: Red Capsicum ×5, Green Capsicum ×2, Green Chili ×10, 20% off, PayPal.
+  const dianneOrders: [number, number, Line[], "PROCESSING" | "SHIPPED" | "DELIVERED"][] = [
+    [3933, 2, [["green-apple", "1 kg", 2], ["corn", "1 kg", 1], ["eggplant", "1 kg", 2]], "PROCESSING"],
+    [5045, 9, [["green-lettuce", "1 kg", 1]], "SHIPPED"],
+    [5028, 16, [["big-potatoes", "1 kg", 4], ["fresh-cauliflower", "1 kg", 2], ["red-tomatoes", "1 kg", 3], ["corn", "500 g", 2]], "DELIVERED"],
+    [4600, 17, [["green-chili", "1 kg", 1]], "DELIVERED"],
+    [8811, 26, [["chinese-cabbage", "1 kg", 3], ["ladies-finger", "1 kg", 4]], "DELIVERED"],
+    [3536, 31, [["fresh-indian-malta", "1 kg", 6], ["green-apple", "1 kg", 4]], "DELIVERED"],
+    [1374, 38, [["eggplant", "1 kg", 5], ["fresh-indian-orange", "1 kg", 3]], "DELIVERED"],
+    [7791, 40, [["green-capsicum", "1 kg", 10], ["red-chili", "1 kg", 2]], "DELIVERED"],
+    [4846, 41, [["red-tomatoes", "500 g", 1]], "DELIVERED"],
+    [5948, 45, [["green-lettuce", "500 g", 2]], "DELIVERED"],
+    [1577, 175, [["corn", "1 kg", 1]], "DELIVERED"],
+  ];
+  for (const [number, ago, lines, status] of dianneOrders) {
+    await order({ number, userKey: "dianne", daysAgo: ago, lines, status, paymentStatus: "PAID", paymentMethod: "CASH_ON_DELIVERY" });
+  }
+  await order({
+    number: 4152,
+    userKey: "dianne",
+    daysAgo: 18,
+    lines: [["red-capsicum", "1 kg", 5], ["green-capsicum", "1 kg", 2], ["green-chili", "500 g", 10]],
+    status: "PROCESSING",
+    paymentStatus: "PAID",
+    paymentMethod: "PAYPAL",
+    withCoupon: true,
+  });
+
+  // Admin Order Management / Transaction mix (Paid/Unpaid; CC, PayPal, Bank; Complete/Pending/Canceled).
+  const adminMix: Parameters<typeof order>[0][] = [
+    { number: 9001, userKey: "john", daysAgo: 1, lines: [["green-apple", "1 kg", 3]], status: "DELIVERED", paymentStatus: "PAID", paymentMethod: "CARD" },
+    { number: 9002, userKey: "john", daysAgo: 2, lines: [["fresh-indian-orange", "1 kg", 6]], status: "PENDING", paymentStatus: "UNPAID", paymentMethod: "PAYPAL" },
+    { number: 9003, userKey: "jane", daysAgo: 3, lines: [["big-potatoes", "1 kg", 2]], status: "DELIVERED", paymentStatus: "PAID", paymentMethod: "CARD" },
+    { number: 9004, userKey: "emily", daysAgo: 3, lines: [["green-apple", "1 kg", 4], ["eggplant", "500 g", 2]], status: "SHIPPED", paymentStatus: "PAID", paymentMethod: "BANK_TRANSFER" },
+    { number: 9005, userKey: "jane", daysAgo: 4, lines: [["corn", "1 kg", 2]], status: "CANCELED", paymentStatus: "CANCELED", paymentMethod: "CARD" },
+    { number: 9006, userKey: "emily", daysAgo: 5, lines: [["red-tomatoes", "1 kg", 5]], status: "PENDING", paymentStatus: "UNPAID", paymentMethod: "PAYPAL" },
+    { number: 9007, userKey: "john", daysAgo: 6, lines: [["fresh-cauliflower", "1 kg", 2]], status: "DELIVERED", paymentStatus: "PAID", paymentMethod: "BANK_TRANSFER" },
+    { number: 9008, userKey: "emily", daysAgo: 6, lines: [["chinese-cabbage", "1 kg", 8]], status: "DELIVERED", paymentStatus: "FAILED", paymentMethod: "CARD" },
+  ];
+  for (const o of adminMix) await order(o);
+
+  // Keep the autoincrement sequence ahead of the explicit order numbers.
+  await prisma.$executeRawUnsafe(
+    `SELECT setval(pg_get_serial_sequence('"Order"', 'number'), (SELECT MAX("number") FROM "Order"))`,
+  );
+
+  // Dianne's cart (Shopping Cart / Checkout screens) and wishlist (Wishlist screen).
+  await prisma.cart.create({
+    data: {
+      userId: u.dianne!,
+      items: {
+        create: [
+          { variantId: catalog["green-capsicum"]!.variants["1 kg"]!.id, quantity: 5 },
+          { variantId: catalog["red-capsicum"]!.variants["1 kg"]!.id, quantity: 1 },
+        ],
+      },
+    },
+  });
+  await prisma.wishlist.createMany({
+    data: ["green-capsicum", "chinese-cabbage", "surjapuri-mango"].map((slug) => ({
+      userId: u.dianne!,
+      productId: catalog[slug]!.id,
+    })),
+  });
+
+  // PDP Customer Feedback (Chinese Cabbage) + a few ratings elsewhere for card stars.
+  const reviewerKey: Record<string, string> = {
+    "Kristin Watson": "kristin",
+    "Jane Cooper": "janec",
+    "Jacob Jones": "jacob",
+    "Ralph Edwards": "ralph",
+  };
+  for (const r of chineseCabbageReviews) {
+    await prisma.review.create({
+      data: {
+        productId: catalog["chinese-cabbage"]!.id,
+        userId: u[reviewerKey[r.reviewer]!]!,
+        rating: r.rating,
+        body: r.body,
+        createdAt: new Date(Date.now() - r.minutesAgo * 60_000),
+      },
+    });
+  }
+  // Every other product: one review per entry of its `ratings` (seed-data.ts), so
+  // card stars and the Shop rating filter have real data behind them.
+  const reviewers = ["kristin", "janec", "jacob", "ralph", "john", "emily", "jane", "dianne"];
+  const extra = products.flatMap((p) =>
+    (p.ratings ?? []).map((rating, i) => ({
+      productId: catalog[slugify(p.name)]!.id,
+      userId: u[reviewers[i % reviewers.length]!]!,
+      rating,
+      body: "Fresh and exactly as described.",
+    })),
+  );
+  await prisma.review.createMany({ data: extra });
+
+  // Denormalized rating fields used by product cards.
+  const stats = await prisma.review.groupBy({ by: ["productId"], _avg: { rating: true }, _count: true });
+  for (const s of stats) {
+    await prisma.product.update({
+      where: { id: s.productId },
+      data: { ratingAvg: Math.round((s._avg.rating ?? 0) * 10) / 10, reviewCount: s._count },
+    });
+  }
+
+  const orderCount = await prisma.order.count();
+  console.log(`✔ ${orderCount} orders, 1 cart, 3 wishlist items, ${chineseCabbageReviews.length + extra.length} reviews, coupon ECO20`);
+  console.log(`\nSign in as admin@ecomfy.test or dianne.russell@ecomfy.test with SEED_PASSWORD.`);
+}
+
+main()
+  .catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(() => prisma.$disconnect());

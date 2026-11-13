@@ -1,0 +1,462 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+/* Color, radius, shadow and layout tokens — generated from designs/tokens.json (`pnpm tokens`). */
+@import "./theme.css";
+
+/* No dark design exists yet; the variant is kept so shadcn components compile. */
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Responsive system — 4 layers, mobile-first (see CLAUDE.md → Responsive rules):
+ *   mobile  < 768px   base styles, no prefix
+ *   tablet  768–1023  tablet:
+ *   laptop  1024–1439 laptop:
+ *   desktop >= 1440   desktop:
+ * App code uses only these prefixes (enforced by `pnpm lint:design`). Tailwind's
+ * default sm/md/lg/xl/2xl stay defined only because vendored components/ui use them.
+ * Mirrored in designs/tokens.json → shared.breakpoints (`pnpm tokens` checks).
+ */
+@theme {
+  --breakpoint-tablet: 48rem;
+  --breakpoint-laptop: 64rem;
+  --breakpoint-desktop: 90rem;
+}
+
+/* Tap target >= 44px on mobile/tablet for custom interactive elements (links, icon buttons). */
+@utility tap-target {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  @variant laptop {
+    min-height: auto;
+    min-width: auto;
+  }
+}
+
+/*
+ * ── App shell (below laptop) ─────────────────────────────────────────────────
+ * Mobile/tablet behave like a native app (CLAUDE.md → App shell). Every fixed or
+ * sticky element positions itself with these variables, never with raw numbers:
+ *   --app-header-h    sticky compact header height (incl. top safe area); 0 from laptop
+ *   --app-bottom-nav  space the bottom tab bar covers (incl. bottom safe area); 0 when
+ *                     the bar is absent (checkout, admin), hidden (keyboard) or ≥ laptop
+ *   --app-bottom-safe bottom safe area NOT already covered by the tab bar
+ * The bar is detected with :has(), so routes that don't render it get 0 automatically.
+ */
+:root {
+  --app-header-h: calc(4rem + env(safe-area-inset-top));
+  --app-bottom-nav: 0px;
+  --app-bottom-safe: env(safe-area-inset-bottom);
+  @variant laptop {
+    --app-header-h: 0px;
+  }
+}
+:root:has([data-slot="bottom-nav"]) {
+  --app-bottom-nav: calc(4rem + env(safe-area-inset-bottom));
+  --app-bottom-safe: 0px;
+  @variant laptop {
+    --app-bottom-nav: 0px;
+    --app-bottom-safe: env(safe-area-inset-bottom);
+  }
+}
+/* On-screen keyboard: hide the tab bar while a text field has focus (iOS floats fixed
+   bars above the keyboard). Pure CSS — no visualViewport JS. */
+:root:has(
+    :is(
+        input:not([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"], [type="reset"], [type="file"], [type="color"], [type="image"], [type="hidden"]),
+        textarea,
+        [contenteditable="true"],
+        [contenteditable=""]
+      ):focus
+  ) {
+  --app-bottom-nav: 0px;
+  --app-bottom-safe: env(safe-area-inset-bottom);
+  & [data-slot="bottom-nav"] {
+    display: none;
+  }
+}
+
+/* Container side padding that also clears landscape notches (env() is 0 on desktop). */
+@utility px-safe-gutter {
+  padding-inline-start: max(var(--gutter), env(safe-area-inset-left));
+  padding-inline-end: max(var(--gutter), env(safe-area-inset-right));
+}
+
+/* Horizontal rail (components/shared/rail.tsx): CSS scroll-snap, no carousel JS. */
+@utility rail {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+/* Edge-to-edge bleed out of <Container>: the rail reaches the screen edge while the
+   first item stays aligned with the container padding. */
+@utility rail-bleed {
+  margin-inline-start: calc(-1 * max(var(--gutter), env(safe-area-inset-left)));
+  margin-inline-end: calc(-1 * max(var(--gutter), env(safe-area-inset-right)));
+  padding-inline-start: max(var(--gutter), env(safe-area-inset-left));
+  padding-inline-end: max(var(--gutter), env(safe-area-inset-right));
+  scroll-padding-inline-start: max(var(--gutter), env(safe-area-inset-left));
+  scroll-padding-inline-end: max(var(--gutter), env(safe-area-inset-right));
+}
+
+/* Press feedback on tappables (mobile/tablet only; laptop+ keeps the design's hover). */
+@utility press {
+  transition-property: color, background-color, border-color, box-shadow, opacity, scale;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+  &:active:not(:disabled) {
+    scale: 0.97;
+  }
+  @variant laptop {
+    &:active:not(:disabled) {
+      scale: none;
+    }
+  }
+}
+/* Cards: scale when the card's own (stretched) link is pressed, not its buttons. */
+@utility press-card {
+  transition-property: border-color, box-shadow, scale;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+  &:has([data-slot="card-link"]:active) {
+    scale: 0.97;
+  }
+  @variant laptop {
+    &:has([data-slot="card-link"]:active) {
+      scale: none;
+    }
+  }
+}
+
+/*
+ * ── Storefront motion (Home) ─────────────────────────────────────────────────
+ * CSS only. Every effect is motion-safe; hover effects are laptop+ (touch uses
+ * `press`). Scroll reveal is progressive enhancement: browsers without
+ * scroll-driven animations just show the content.
+ */
+@theme {
+  --animate-marquee: marquee 40s linear infinite;
+  --animate-settle: settle 1.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  @keyframes marquee {
+    from {
+      translate: 0;
+    }
+    to {
+      translate: -50%;
+    }
+  }
+  @keyframes settle {
+    from {
+      scale: 1.06;
+    }
+    to {
+      scale: 1;
+    }
+  }
+}
+@keyframes reveal {
+  from {
+    opacity: 0;
+    translate: 0 1.5rem;
+  }
+  to {
+    opacity: 1;
+    translate: 0;
+  }
+}
+/* Fade + rise as the element scrolls into view. Put it on a wrapper, not on an
+   element that also uses translate/opacity utilities (the animation would win). */
+@utility reveal {
+  @media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: view()) {
+      animation: reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 35%;
+    }
+  }
+}
+/* Edge fade for the partner-logo marquee (mask keywords only, no colors). */
+@utility fade-edges-x {
+  mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+}
+
+/*
+ * ── Page transitions (components/shared/page-transition.tsx) ─────────────────
+ * Fade for tab switches, slide for drill-down (`nav-forward`) / back (`nav-back`).
+ * Header and tab bar stay anchored. Mobile/tablet only; off for reduced motion.
+ */
+::view-transition {
+  pointer-events: none;
+}
+::view-transition-old(.page-fade) {
+  animation: 150ms ease-out both vt-fade reverse;
+}
+::view-transition-new(.page-fade) {
+  animation: 210ms ease-in 150ms both vt-fade;
+}
+::view-transition-old(.nav-forward) {
+  --vt-slide: -3.75rem;
+  animation:
+    150ms ease-in both vt-fade reverse,
+    400ms ease-in-out both vt-slide reverse;
+}
+::view-transition-new(.nav-forward) {
+  --vt-slide: 3.75rem;
+  animation:
+    210ms ease-out 150ms both vt-fade,
+    400ms ease-in-out both vt-slide;
+}
+::view-transition-old(.nav-back) {
+  --vt-slide: 3.75rem;
+  animation:
+    150ms ease-in both vt-fade reverse,
+    400ms ease-in-out both vt-slide reverse;
+}
+::view-transition-new(.nav-back) {
+  --vt-slide: -3.75rem;
+  animation:
+    210ms ease-out 150ms both vt-fade,
+    400ms ease-in-out both vt-slide;
+}
+::view-transition-group(site-header),
+::view-transition-group(bottom-nav) {
+  animation: none;
+  z-index: 100;
+}
+::view-transition-old(site-header),
+::view-transition-old(bottom-nav) {
+  display: none;
+}
+::view-transition-new(site-header),
+::view-transition-new(bottom-nav) {
+  animation: none;
+}
+@keyframes vt-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes vt-slide {
+  from {
+    translate: var(--vt-slide);
+  }
+  to {
+    translate: 0;
+  }
+}
+/* 64rem = --breakpoint-laptop: app transitions never leak up to laptop/desktop. */
+@media (prefers-reduced-motion: reduce), (width >= 64rem) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+}
+
+/*
+ * ── Route modal (components/shared/route-modal.tsx) ──────────────────────────
+ * vaul injects unlayered CSS, which beats Tailwind's layered utilities, so its
+ * overrides live here, unlayered and more specific. Below laptop the modal is
+ * vaul's bottom sheet; from laptop (64rem = --breakpoint-laptop) it's a centered
+ * dialog that fades/scales in instead of sliding, with no handle and no sheet
+ * extension below it.
+ */
+[data-slot="route-modal"] [data-vaul-handle] {
+  flex-shrink: 0;
+  width: 100%;
+  height: 1.75rem;
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+  opacity: 1;
+}
+[data-slot="route-modal"] [data-vaul-handle]::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  width: 2.5rem;
+  height: 0.3125rem;
+  border-radius: 9999px;
+  background: var(--border);
+}
+@media (width >= 64rem) {
+  [data-slot="route-modal"] [data-vaul-handle] {
+    display: none;
+  }
+  [data-slot="route-modal"][data-vaul-drawer]::after {
+    display: none;
+  }
+  [data-slot="route-modal"][data-vaul-drawer] {
+    user-select: auto;
+    touch-action: auto;
+  }
+  [data-slot="route-modal"][data-vaul-drawer][data-vaul-snap-points="false"][data-vaul-drawer-direction="bottom"][data-state="open"] {
+    animation: route-modal-in 200ms ease-out;
+  }
+  [data-slot="route-modal"][data-vaul-drawer][data-vaul-snap-points="false"][data-vaul-drawer-direction="bottom"][data-state="closed"] {
+    animation: route-modal-out 150ms ease-in;
+  }
+}
+@keyframes route-modal-in {
+  from {
+    opacity: 0;
+    scale: 0.96;
+  }
+}
+@keyframes route-modal-out {
+  to {
+    opacity: 0;
+    scale: 0.96;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="route-modal"][data-vaul-drawer][data-vaul-snap-points="false"][data-vaul-drawer-direction="bottom"],
+  [data-slot="route-modal-overlay"][data-vaul-overlay][data-vaul-snap-points="false"] {
+    animation-duration: 1ms !important;
+    transition: none !important;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* Content never hides behind the tab bar / home indicator (see App shell above). */
+    padding-bottom: calc(var(--app-bottom-nav) + var(--app-bottom-safe));
+  }
+  /* Native-app touch: no gray tap flash, no double-tap-zoom delay on controls. */
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  :where(a, button, [role="button"], input, select, textarea, label, summary) {
+    touch-action: manipulation;
+  }
+  /* Press feedback for shadcn buttons below laptop (vendored components untouched). */
+  :where([data-slot="button"]):active:not(:disabled) {
+    scale: 0.97;
+    @variant laptop {
+      scale: none;
+    }
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  html {
+    @apply font-sans;
+  }
+
+  /*
+   * ── Fluid root scale (laptop+, storefront) ───────────────────────────────────
+   * Laptop/desktop are the 1920 desktop design scaled down: everything is in rem,
+   * so the root font size sets the whole storefront's scale. 1rem = 1/120 of the
+   * viewport, clamped to 12px (1024–1440: a fixed 75%, where the 82.5rem container
+   * = 990px still fits 1024) and 16px (≥1920, where the container stays centered).
+   * Mobile/tablet stay at 16px. The admin (1440 artboard) is excluded. Media
+   * queries resolve rem against the initial 16px, so breakpoints don't move.
+   */
+  html {
+    font-size: 16px;
+    @variant laptop {
+      &:not(:has(.theme-admin)) {
+        font-size: clamp(12px, calc(100vw / 120), 16px);
+      }
+    }
+  }
+  /* Safety net only; real overflow is fixed at its source. clip (not hidden) keeps
+     position: sticky working. */
+  body {
+    overflow-x: clip;
+  }
+  /* Admin scope swaps colors and font (see .theme-admin in theme.css). */
+  .theme-admin {
+    @apply bg-background font-sans text-foreground;
+  }
+
+  /*
+   * Tap targets >= 44px on mobile/tablet for shadcn controls (matched by data-slot,
+   * so vendored components/ui stay untouched). Laptop/desktop keep the design sizes.
+   * Base-layer rules: a utility like min-h-* on the element still wins.
+   */
+  :where(
+      [data-slot="button"],
+      [data-slot="input"],
+      [data-slot="select-trigger"],
+      [data-slot="select-item"],
+      [data-slot="tabs-trigger"],
+      [data-slot="accordion-trigger"],
+      [data-slot="dropdown-menu-item"],
+      [data-slot="dropdown-menu-sub-trigger"],
+      [data-slot="pagination-link"],
+      [data-slot="label"]:has([data-slot="checkbox"], [data-slot="radio-group-item"], [data-slot="switch"])
+    ) {
+    min-height: 2.75rem;
+    @variant laptop {
+      min-height: 0;
+    }
+  }
+  :where([data-slot="button"][data-size^="icon"], [data-slot="pagination-link"]) {
+    min-width: 2.75rem;
+    @variant laptop {
+      min-width: 0;
+    }
+  }
+}

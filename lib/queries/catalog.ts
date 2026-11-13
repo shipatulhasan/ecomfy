@@ -1,0 +1,139 @@
+import "server-only";
+import { cacheLife, cacheTag } from "next/cache";
+import { prisma } from "@/lib/db";
+import { CacheTags } from "@/lib/cache-tags";
+import type { Prisma } from "@/lib/generated/prisma/client";
+
+/**
+ * Catalog reads are cached with "use cache" and tagged so admin mutations can
+ * invalidate them (updateTag(CacheTags.categories) in the admin action).
+ */
+export async function getCategories() {
+  "use cache";
+  cacheTag(CacheTags.categories);
+  cacheLife("hours");
+
+  return prisma.category.findMany({
+    orderBy: { sortOrder: "asc" },
+    select: { id: true, name: true, slug: true, imageUrl: true },
+  });
+}
+
+// ───────────────────────── product cards ─────────────────────────
+
+/** Everything a ProductCard renders. Plain serializable data (crosses to client leaves). */
+export type ProductCardData = {
+  id: string;
+  slug: string;
+  name: string;
+  image: { url: string; alt: string; width: number; height: number } | null;
+  variantId: string;
+  priceCents: number;
+  compareAtCents: number | null;
+  inStock: boolean;
+  ratingAvg: number;
+  reviewCount: number;
+  dealEndsAt: string | null; // ISO
+};
+
+export const productCardSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  ratingAvg: true,
+  reviewCount: true,
+  dealEndsAt: true,
+  images: {
+    orderBy: { position: "asc" },
+    take: 1,
+    select: { url: true, alt: true, width: true, height: true },
+  },
+  variants: {
+    // Default variant first; it is the one a card shows and adds to the cart.
+    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    take: 1,
+    select: { id: true, priceCents: true, compareAtCents: true, stock: true },
+  },
+} satisfies Prisma.ProductSelect;
+
+export type ProductCardRow = Prisma.ProductGetPayload<{ select: typeof productCardSelect }>;
+
+function toProductCard(row: ProductCardRow): ProductCardData | null {
+  const variant = row.variants[0];
+  if (!variant) return null; // a product without variants can't be sold
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    image: row.images[0] ?? null,
+    variantId: variant.id,
+    priceCents: variant.priceCents,
+    compareAtCents: variant.compareAtCents,
+    inStock: variant.stock > 0,
+    ratingAvg: row.ratingAvg,
+    reviewCount: row.reviewCount,
+    dealEndsAt: row.dealEndsAt?.toISOString() ?? null,
+  };
+}
+
+export const toCards = (rows: ProductCardRow[]) =>
+  rows.map(toProductCard).filter((p): p is ProductCardData => p !== null);
+
+/** Home → Popular Products: best reviewed first. */
+export async function getPopularProducts(limit = 10) {
+  "use cache";
+  cacheTag(CacheTags.products);
+  cacheLife("hours");
+
+  const rows = await prisma.product.findMany({
+    where: { status: "ACTIVE" },
+    orderBy: [{ reviewCount: "desc" }, { ratingAvg: "desc" }, { createdAt: "asc" }],
+    take: limit,
+    select: productCardSelect,
+  });
+  return toCards(rows);
+}
+
+/**
+ * Home → Hot Deals: running deals (soonest ending first), then the rest of the
+ * catalog, on-sale items first. The first item is the spotlight card.
+ */
+export async function getHotDeals(limit = 12) {
+  "use cache";
+  cacheTag(CacheTags.products);
+  cacheLife("minutes"); // deals expire; keep the "still running" filter fresh
+
+  const rows = await prisma.product.findMany({
+    where: {
+      status: "ACTIVE",
+      OR: [{ dealEndsAt: null }, { dealEndsAt: { gt: new Date() } }],
+    },
+    orderBy: [{ dealEndsAt: { sort: "asc", nulls: "last" } }, { reviewCount: "desc" }],
+    take: limit * 2,
+    select: productCardSelect,
+  });
+  const cards = toCards(rows);
+  const onSale = (p: ProductCardData) => (p.compareAtCents ?? 0) > p.priceCents;
+  const deals = cards.filter((p) => p.dealEndsAt);
+  const rest = cards.filter((p) => !p.dealEndsAt);
+  // Stable sorts: on-sale first, otherwise keep "soonest ending" — so the spotlight
+  // is the soonest-ending discounted deal.
+  deals.sort((a, b) => Number(onSale(b)) - Number(onSale(a)));
+  rest.sort((a, b) => Number(onSale(b)) - Number(onSale(a)));
+  return [...deals, ...rest].slice(0, limit);
+}
+
+/** Home → Featured Products (admin "Featured" flag). */
+export async function getFeaturedProducts(limit = 5) {
+  "use cache";
+  cacheTag(CacheTags.products);
+  cacheLife("hours");
+
+  const rows = await prisma.product.findMany({
+    where: { status: "ACTIVE", isFeatured: true },
+    orderBy: { createdAt: "asc" },
+    take: limit,
+    select: productCardSelect,
+  });
+  return toCards(rows);
+}

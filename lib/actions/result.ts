@@ -1,0 +1,17 @@
+/** Every server action returns this shape — never throws to the client. */
+export type ActionResult<T = void> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; fieldErrors?: Record<string, string[] | undefined> };
+
+/** Throw inside an action to return a user-facing error message. */
+export class ActionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ActionError";
+  }
+}
+
+export const ok = <T>(data: T): ActionResult<T> => ({ ok: true, data });
+
+/** `error` value of actions that need a session; the client sends the visitor to sign in. */
+export const SIGN_IN_REQUIRED = "SIGN_IN_REQUIRED";
