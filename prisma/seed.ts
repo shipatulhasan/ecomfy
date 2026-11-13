@@ -41,12 +41,10 @@ function asset(group: "products" | "categories" | "banners" | "avatars", slug: s
 }
 
 /**
- * Money is BDT poisha. seed-data.ts keeps the design's USD prices ($14.99 on the
- * PNGs); they're converted at the seeded USD rate and rounded to whole taka, so
- * switching the storefront to USD shows (about) the design's numbers again.
+ * Money is BDT poisha. seed-data.ts prices are BDT (taka), stored as poisha.
+ * USD is display-only, derived at Settings.usdToBdtRate.
  */
-const USD_RATE = 123;
-const cents = (dollars: number) => Math.round(dollars * USD_RATE) * 100;
+const cents = (taka: number) => Math.round(taka * 100);
 
 /** PDP Additional Information rows for products that don't list their own. */
 function defaultAttributes(p: SeedProduct, v: SeedVariant) {
@@ -239,7 +237,7 @@ async function main() {
   await prisma.settings.create({
     data: {
       id: "default",
-      usdToBdtRate: USD_RATE,
+      usdToBdtRate: 123, // display-only USD rate (admin-editable later)
       codEnabled: true,
       codFeeCents: 2000, // ৳20
       codMaxOrderCents: 2_000_000, // ৳20,000
@@ -263,7 +261,7 @@ async function main() {
   await prisma.coupon.createMany({
     data: [
       { code: "EXPIRED10", type: "PERCENT", value: 10, endsAt: new Date(Date.now() - 86_400_000) },
-      { code: "BIG50", type: "FIXED", value: 50000, minSubtotalCents: 2_000_000 }, // ৳500 off ৳20,000+
+      { code: "BIG50", type: "FIXED", value: 5000, minSubtotalCents: 20000 }, // ৳50 off ৳200+
     ],
   });
 
