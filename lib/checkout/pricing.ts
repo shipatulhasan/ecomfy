@@ -79,3 +79,34 @@ export function computeCheckoutQuote(
     methods,
   };
 }
+
+/**
+ * Quote for paying an existing order again (/checkout/failed "Try again", account
+ * Order Details "Pay now"): the order's own totals, methods available for it.
+ */
+export function retryQuote(
+  order: {
+    subtotalCents: number;
+    discountCents: number;
+    couponCode: string | null;
+    shippingCents: number;
+    codFeeCents: number;
+    totalCents: number;
+    district: string;
+    paymentMethod: PaymentMethod;
+  },
+  settings: StoreSettings,
+): CheckoutQuote {
+  return {
+    subtotalCents: order.subtotalCents,
+    discountCents: order.discountCents,
+    couponCode: order.couponCode,
+    shippingCents: order.shippingCents,
+    zone: null,
+    codFeeCents: order.codFeeCents,
+    totalCents: order.totalCents,
+    district: order.district,
+    paymentMethod: order.paymentMethod,
+    methods: methodAvailability(settings, order.district, order.totalCents - order.codFeeCents),
+  };
+}

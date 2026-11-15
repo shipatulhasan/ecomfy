@@ -13,7 +13,8 @@ import {
   StatsRail,
 } from "@/components/shop/account/dashboard";
 import { requireUser } from "@/lib/auth-guards";
-import { getAccountProfile, getAccountStats, getDefaultBillingAddress, getRecentOrders } from "@/lib/queries/account";
+import { getAccountProfile, getAccountStats, getDefaultBillingAddress } from "@/lib/queries/account";
+import { getRecentOrders } from "@/lib/queries/orders";
 
 /**
  * User Dashboard (designs/screens/web/User_Dashboard.png). Two streamed sections

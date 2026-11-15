@@ -28,6 +28,8 @@ const sizes = {
   stat: "[--rail-item:40%] tablet:[--rail-item:calc((100%-2rem)/3)]",
   /** Chips size to their content. */
   chip: "[--rail-item:auto]",
+  /** Order card item thumbnails (3rem squares). */
+  thumb: "[--rail-item:3rem]",
 } as const;
 
 export type RailSize = keyof typeof sizes;
@@ -35,17 +37,21 @@ export type RailSize = keyof typeof sizes;
 export function Rail({
   size = "product",
   laptop = "rail",
+  bleed = true,
   className,
   ...props
 }: {
   size?: RailSize;
   laptop?: "rail" | "grid";
+  /** False inside cards: no edge-to-edge bleed, the rail stays in its box. */
+  bleed?: boolean;
 } & React.ComponentProps<"ul">) {
   return (
     <ul
       data-slot="rail"
       className={cn(
-        "rail rail-bleed gap-3 tablet:gap-4",
+        "rail gap-3 tablet:gap-4",
+        bleed && "rail-bleed",
         sizes[size],
         laptop === "grid" &&
           "laptop:mx-0 laptop:grid laptop:snap-none laptop:scroll-p-0 laptop:overflow-visible laptop:px-0 laptop:[--rail-item:auto]",

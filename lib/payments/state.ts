@@ -1,11 +1,12 @@
 import "server-only";
 import { after } from "next/server";
 import { prisma } from "@/lib/db";
-import { PENDING_PAYMENT_TTL_MIN, paymentReference } from "@/lib/config/checkout";
+import { PENDING_PAYMENT_TTL_MIN, paymentMethodMeta, paymentReference } from "@/lib/config/checkout";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import type { PaymentMethod } from "@/lib/generated/prisma/enums";
 import { sendMail } from "@/lib/mail";
 import { formatPrice } from "@/lib/money";
+import { recordStatus } from "@/lib/orders/history";
 import { paymentLog, paymentWarn, type LogEntry } from "./log";
 import type { CallbackResult } from "./types";
 
@@ -172,7 +173,7 @@ export async function markPaid(reference: string, ids: GatewayIds, tag: string, 
   const result = await prisma.$transaction(async (tx) => {
     const payment = await tx.payment.findUnique({
       where: { reference },
-      select: { id: true, orderId: true, status: true, order: { select: { paymentStatus: true } } },
+      select: { id: true, orderId: true, status: true, method: true, order: { select: { paymentStatus: true } } },
     });
     if (!payment) return { outcome: "invalid", orderId: null, reason: "Unknown transaction" } as CallbackResult;
 
@@ -194,6 +195,7 @@ export async function markPaid(reference: string, ids: GatewayIds, tag: string, 
       where: { id: payment.orderId },
       data: { status: "PROCESSING", paymentStatus: "PAID", paidAt: new Date(), expiresAt: null },
     });
+    await recordStatus(tx, payment.orderId, "PROCESSING", `Paid via ${paymentMethodMeta[payment.method].label}`);
     await clearOrderedCart(tx, payment.orderId);
     return { outcome: "paid", orderId: payment.orderId, paid: true } as CallbackResult;
   });
@@ -230,7 +232,10 @@ export async function markFailed(
       where: { id: payment.orderId, paymentStatus: "UNPAID", status: "PENDING_PAYMENT" },
       data: { status: outcome === "cancelled" ? "CANCELLED" : "FAILED", expiresAt: null },
     });
-    if (order.count === 1) await releaseStock(tx, payment.orderId);
+    if (order.count === 1) {
+      await releaseStock(tx, payment.orderId);
+      await recordStatus(tx, payment.orderId, outcome === "cancelled" ? "CANCELLED" : "FAILED", reason);
+    }
     return { outcome, orderId: payment.orderId, paid, reason } as CallbackResult;
   });
 
@@ -275,6 +280,7 @@ export async function expireStale(opts: { orderId?: string; limit?: number } = {
         data: { status: "EXPIRED", failReason: `Unpaid after ${PENDING_PAYMENT_TTL_MIN} minutes`, completedAt: now },
       });
       await releaseStock(tx, id);
+      await recordStatus(tx, id, "EXPIRED", `Unpaid after ${PENDING_PAYMENT_TTL_MIN} minutes`);
       return true;
     });
     if (done) {

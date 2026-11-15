@@ -12,7 +12,8 @@ import Link from "next/link";
 import { Rail, RailItem } from "@/components/shared/rail";
 import { Skeleton } from "@/components/ui/skeleton";
 import { laptopSizes } from "@/lib/image-sizes";
-import type { AccountAddress, AccountProfile, OrderRow } from "@/lib/queries/account";
+import type { AccountAddress, AccountProfile } from "@/lib/queries/account";
+import type { OrderRow } from "@/lib/queries/orders";
 import { NoOrders, OrderCards, OrdersTable } from "./orders-list";
 import { SignOutButton } from "./sign-out-button";
 import { UserAvatar } from "./user-avatar";
@@ -202,29 +203,52 @@ export function ProfileSkeleton() {
   );
 }
 
-export function OrdersSkeleton({ rows = 6 }: { rows?: number }) {
+export function OrdersSkeleton({ rows = 6, bare = false }: { rows?: number; bare?: boolean }) {
+  const tableRows = (
+    <>
+      <Skeleton className="h-9 rounded-none" />
+      <div className="flex flex-col gap-0 px-6 py-3">
+        {Array.from({ length: rows }, (_, i) => (
+          <div key={i} className="flex h-11.25 items-center gap-6">
+            <Skeleton className="h-4 w-12" />
+            <Skeleton className="ml-24 h-4 w-24" />
+            <Skeleton className="ml-12 h-4 w-36" />
+            <Skeleton className="ml-auto h-4 w-20" />
+          </div>
+        ))}
+      </div>
+    </>
+  );
   return (
     <div role="status" aria-label="Loading your orders">
-      <div className={`${card} hidden flex-col gap-0 overflow-hidden laptop:flex`}>
-        <div className="flex h-15.5 items-center justify-between px-6">
-          <Skeleton className="h-6 w-48" />
-          <Skeleton className="h-5 w-16" />
+      {bare ? (
+        <div className="hidden flex-col laptop:flex">{tableRows}</div>
+      ) : (
+        <div className={`${card} hidden flex-col gap-0 overflow-hidden laptop:flex`}>
+          <div className="flex h-15.5 items-center justify-between px-6">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-5 w-16" />
+          </div>
+          {tableRows}
         </div>
-        <Skeleton className="h-9 rounded-none" />
-        <div className="flex flex-col gap-0 px-6 py-3">
-          {Array.from({ length: rows }, (_, i) => (
-            <div key={i} className="flex h-11.25 items-center gap-6">
-              <Skeleton className="h-4 w-12" />
-              <Skeleton className="ml-24 h-4 w-24" />
-              <Skeleton className="ml-12 h-4 w-36" />
-              <Skeleton className="ml-auto h-4 w-20" />
-            </div>
-          ))}
-        </div>
-      </div>
+      )}
       <div className="flex flex-col gap-3 laptop:hidden">
         {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="h-19 rounded-lg" />
+          <div key={i} className={`${card} flex flex-col gap-3 p-4`}>
+            <div className="flex justify-between">
+              <Skeleton className="h-5 w-28" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+            </div>
+            <div className="flex gap-2">
+              {[0, 1, 2].map((j) => (
+                <Skeleton key={j} className="size-12 rounded-md" />
+              ))}
+            </div>
+            <div className="flex justify-between">
+              <Skeleton className="h-4 w-36" />
+              <Skeleton className="h-4 w-16" />
+            </div>
+          </div>
         ))}
       </div>
     </div>

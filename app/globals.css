@@ -80,14 +80,13 @@
    - "focus": sign in / sign up / password reset, full-screen forms (the tab bar
      isn't rendered there either: bottom-nav HIDDEN_ON);
    - "account": the /account profile screen and its sub-pages (tab bar stays).
-   Laptop+ keeps the PNG chrome. */
-:root:has([data-app-screen]) {
-  & [data-slot="newsletter-band"],
-  & [data-slot="site-footer"] {
+   Laptop+ keeps the PNG chrome. Scoped below laptop (64rem = --breakpoint-laptop)
+   instead of "none, then revert from laptop": the minifier merged that display:none
+   into the keyboard rule's :is() list, whose specificity beat the revert, so the
+   footer vanished on account pages at every width. */
+@media (width < 64rem) {
+  :root:has([data-app-screen]) :is([data-slot="newsletter-band"], [data-slot="site-footer"]) {
     display: none;
-    @variant laptop {
-      display: revert;
-    }
   }
 }
 
@@ -559,5 +558,17 @@ html:not([data-currency="USD"]) [data-cur="USD"] {
     font-weight: 500;
     font-size: var(--text-lead);
     line-height: var(--text-lead--line-height);
+  }
+}
+
+/* Printing (account order invoice, app/(print)/…/invoice): A4, keep token backgrounds. */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  html {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 }

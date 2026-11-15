@@ -7,11 +7,12 @@ import { resolveCartOwner, findCartId } from "@/lib/cart/owner";
 import { canAccessOrder, rememberOrder } from "@/lib/checkout/order-access";
 import { codProblem, computeCheckoutQuote, type CheckoutQuote } from "@/lib/checkout/pricing";
 import type { StoreSettings } from "@/lib/checkout/settings";
-import { orderNumberFor, PLACE_ORDER_LIMIT } from "@/lib/config/checkout";
+import { orderNumberFor, paymentMethodMeta, PLACE_ORDER_LIMIT } from "@/lib/config/checkout";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
 import type { PaymentMethod } from "@/lib/generated/prisma/enums";
 import { toDisplayCents } from "@/lib/money";
+import { recordStatus } from "@/lib/orders/history";
 import { startPayment } from "@/lib/payments/service";
 import {
   clearOrderedCart,
@@ -206,6 +207,13 @@ export async function placeOrder(input: unknown): Promise<ActionResult<PlaceOrde
           select: { id: true, number: true },
         });
         await tx.order.update({ where: { id: order.id }, data: { orderNumber: orderNumberFor(order.number) } });
+        await recordStatus(
+          tx,
+          order.id,
+          method === "COD" ? "PENDING_CONFIRMATION" : "PENDING_PAYMENT",
+          method === "COD" ? "Placed with Cash on Delivery" : "Placed, waiting for payment",
+          "customer",
+        );
         await reserveStock(tx, order.id);
         const attempt = await createAttempt(tx, order.id, method, quote.totalCents);
         if (method === "COD") await clearOrderedCart(tx, order.id);
@@ -313,6 +321,13 @@ export async function retryPayment(input: unknown): Promise<ActionResult<PlaceOr
           },
         });
         if (claimed.count !== 1) throw new ActionError("This order can't be paid again. Please check its status.");
+        await recordStatus(
+          tx,
+          order.id,
+          method === "COD" ? "PENDING_CONFIRMATION" : "PENDING_PAYMENT",
+          `Payment retried with ${paymentMethodMeta[method].label}`,
+          "customer",
+        );
         await reserveStock(tx, order.id);
         const a = await createAttempt(tx, order.id, method, totalCents);
         if (method === "COD") await clearOrderedCart(tx, order.id);

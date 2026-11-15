@@ -3,9 +3,9 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 /**
- * Order_History.png pagination: 36 design-px circles, prev/next outlined, the
- * current page filled primary. Plain links (?page=N), so it works without JS.
- * Phones show prev / "Page x of y" / next.
+ * Order_History.png pagination (laptop+): 36 design-px circles, prev/next
+ * outlined, the current page filled primary. Plain links (?page=N), so it works
+ * without JS. Below laptop the history uses <LoadMoreOrders> instead.
  */
 const href = (page: number) => (page <= 1 ? "/account/orders" : `/account/orders?page=${page}`);
 
@@ -17,7 +17,7 @@ export function OrdersPagination({ page, pages }: { page: number; pages: number 
       <Arrow page={page - 1} disabled={page <= 1} label="Previous page">
         <ChevronLeftIcon aria-hidden className="size-5" />
       </Arrow>
-      <ol className="hidden items-center tablet:flex">
+      <ol className="flex items-center">
         {numbers.map((n, i) =>
           n === null ? (
             <li key={`gap-${i}`} aria-hidden className="grid size-9 place-items-center text-copy text-text-subtle">
@@ -39,9 +39,6 @@ export function OrdersPagination({ page, pages }: { page: number; pages: number 
           ),
         )}
       </ol>
-      <p className="text-copy text-text-body tablet:hidden">
-        Page {page} of {pages}
-      </p>
       <Arrow page={page + 1} disabled={page >= pages} label="Next page">
         <ChevronRightIcon aria-hidden className="size-5" />
       </Arrow>
@@ -61,6 +58,29 @@ function Arrow({ page, disabled, label, children }: { page: number; disabled: bo
     <Link href={href(page)} aria-label={label} className={cn(cls, "border-border text-foreground hover:border-primary hover:text-primary")}>
       {children}
     </Link>
+  );
+}
+
+/**
+ * Below laptop: "Load more" appends the next page (the server renders pages 1..N
+ * for ?page=N), so the URL keeps the position and Back/refresh restore it.
+ */
+export function LoadMoreOrders({ page, pages, shown, total }: { page: number; pages: number; shown: number; total: number }) {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <p className="text-caption text-text-subtle">
+        Showing {shown} of {total} orders
+      </p>
+      {page < pages && (
+        <Link
+          href={href(page + 1)}
+          scroll={false}
+          className="press inline-flex h-11.25 items-center rounded-full border border-primary px-8 text-copy font-semibold text-primary"
+        >
+          Load more
+        </Link>
+      )}
+    </div>
   );
 }
 

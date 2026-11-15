@@ -9,7 +9,7 @@ import { OrderResultDetails } from "@/components/shop/checkout/order-result";
 import { RetryPayment } from "@/components/shop/checkout/retry-payment";
 import { PageHero } from "@/components/shop/page-hero";
 import { Skeleton } from "@/components/ui/skeleton";
-import { methodAvailability } from "@/lib/checkout/pricing";
+import { retryQuote } from "@/lib/checkout/pricing";
 import { resultCopy } from "@/lib/config/checkout";
 import { getCheckoutOrder } from "@/lib/queries/checkout-order";
 import { getStoreSettings } from "@/lib/queries/settings";
@@ -59,19 +59,7 @@ async function FailedSection({ searchParams }: Pick<PageProps<"/checkout/failed"
   }
 
   const settings = await getStoreSettings();
-  const payable = order.totalCents - order.codFeeCents;
-  const quote = {
-    subtotalCents: order.subtotalCents,
-    discountCents: order.discountCents,
-    couponCode: order.couponCode,
-    shippingCents: order.shippingCents,
-    zone: null,
-    codFeeCents: order.codFeeCents,
-    totalCents: order.totalCents,
-    district: order.district,
-    paymentMethod: order.paymentMethod,
-    methods: methodAvailability(settings, order.district, payable),
-  };
+  const quote = retryQuote(order, settings);
 
   const title =
     order.status === "EXPIRED"

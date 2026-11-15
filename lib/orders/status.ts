@@ -42,6 +42,41 @@ export function orderStatusView(
 }
 
 /**
+ * Payment line shown next to the order status (summary card, invoice, cards):
+ * "Cash on delivery: unpaid", "Paid via bKash", "Payment failed", "Refunded".
+ */
+export function paymentStatusView(method: PaymentMethod, paymentStatus: PaymentStatus): OrderStatusView {
+  switch (paymentStatus) {
+    case "PAID":
+      return method === "COD"
+        ? { label: "Paid in cash", tone: "success" }
+        : { label: `Paid via ${paymentMethodLabel(method)}`, tone: "success" };
+    case "FAILED":
+      return { label: "Payment failed", tone: "danger" };
+    case "REFUNDED":
+      return { label: "Refunded", tone: "neutral" };
+    case "UNPAID":
+      return method === "COD"
+        ? { label: "Cash on delivery: unpaid", tone: "warning" }
+        : { label: `${paymentMethodLabel(method)}: unpaid`, tone: "warning" };
+  }
+}
+
+/** Tracker steps (Order_Details.png) and the statuses that reach each one. */
+export const ORDER_STEPS = [
+  { label: "Order received", reachedBy: ["PENDING_PAYMENT", "PENDING_CONFIRMATION"] },
+  { label: "Processing", reachedBy: ["PROCESSING"] },
+  { label: "On the way", reachedBy: ["SHIPPED"] },
+  { label: "Delivered", reachedBy: ["DELIVERED"] },
+] as const satisfies readonly { label: string; reachedBy: readonly OrderStatus[] }[];
+
+/** Orders that left the flow: a banner replaces the tracker. */
+export const isClosedStatus = (s: OrderStatus) => s === "CANCELLED" || s === "EXPIRED" || s === "FAILED";
+
+/** Statuses a customer may cancel from (lib/actions/orders.ts → cancelOrder). */
+export const CANCELLABLE_STATUSES = ["PENDING_PAYMENT", "PENDING_CONFIRMATION"] as const satisfies readonly OrderStatus[];
+
+/**
  * Order Details progress tracker: 0 received · 1 processing · 2 on the way ·
  * 3 delivered. Null for orders that left the flow (cancelled, expired, failed).
  */

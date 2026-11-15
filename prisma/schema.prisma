@@ -383,6 +383,7 @@ model Order {
   couponCode        String? // added: snapshot in case the coupon is deleted
   items             OrderItem[]
   payments          Payment[]
+  history           OrderStatusHistory[]
   createdAt         DateTime      @default(now()) // Order History "Date"
   updatedAt         DateTime      @updatedAt
 
@@ -418,6 +419,21 @@ model Payment {
 
   @@unique([orderId, attempt])
   @@index([orderId])
+}
+
+/// Every status change of an order (Order Details tracker dates). Written by checkout,
+/// the payment state machine, customer actions and the admin (lib/orders/history.ts).
+model OrderStatusHistory {
+  id        String      @id @default(cuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String?
+  /// "customer" | "admin" | "system"
+  actor     String      @default("system")
+  createdAt DateTime    @default(now())
+
+  @@index([orderId, createdAt])
 }
 
 model OrderItem {

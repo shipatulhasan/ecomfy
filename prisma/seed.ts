@@ -56,6 +56,36 @@ function defaultAttributes(p: SeedProduct, v: SeedVariant) {
 }
 const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000);
 
+/**
+ * OrderStatusHistory rows for a seeded order: the status it was placed in, then
+ * every step up to its final status (Order Details tracker dates and banners).
+ */
+type HistoryRow = Prisma.OrderStatusHistoryCreateWithoutOrderInput;
+
+function statusTimeline(final: HistoryRow["status"], method: Prisma.OrderCreateInput["paymentMethod"], placed: Date) {
+  const at = (minutes: number) => new Date(Math.min(placed.getTime() + minutes * 60_000, Date.now()));
+  const cod = method === "COD";
+  const label = method === "BKASH" ? "bKash" : method === "SSLCOMMERZ" ? "Card / Online Banking" : "Cash on Delivery";
+  type Row = HistoryRow;
+  const row = (status: HistoryRow["status"], note: string, minutes: number, actor = "system"): Row => ({
+    status,
+    note,
+    actor,
+    createdAt: at(minutes),
+  });
+  const rows: Row[] = [
+    row(cod ? "PENDING_CONFIRMATION" : "PENDING_PAYMENT", cod ? "Placed with Cash on Delivery" : "Placed, waiting for payment", 0, "customer"),
+  ];
+  const step = (["PROCESSING", "SHIPPED", "DELIVERED"] as const).indexOf(final as "PROCESSING");
+  if (step >= 0) rows.push(row("PROCESSING", cod ? "Confirmed by the store" : `Paid via ${label}`, 120, cod ? "admin" : "system"));
+  if (step >= 1) rows.push(row("SHIPPED", "Handed to the courier", 24 * 60, "admin"));
+  if (step >= 2) rows.push(row("DELIVERED", cod ? "Delivered, paid in cash" : "Delivered", 48 * 60, "admin"));
+  if (final === "CANCELLED") rows.push(row("CANCELLED", "Cancelled by customer", 180, "customer"));
+  if (final === "FAILED") rows.push(row("FAILED", "Payment declined by the bank", 10));
+  if (final === "EXPIRED") rows.push(row("EXPIRED", "Unpaid after 30 minutes", 30));
+  return rows;
+}
+
 // ───────────────────────── users ─────────────────────────
 
 type SeedUser = {
@@ -91,7 +121,7 @@ const users: SeedUser[] = [
 async function reset() {
   // Table names are the Prisma model names (no @@map).
   await prisma.$executeRawUnsafe(`
-    TRUNCATE "Payment", "OrderItem", "Order", "Settings", "ShippingZone", "GatewayToken", "CartItem", "Cart", "Wishlist", "Review", "ProductAttribute",
+    TRUNCATE "OrderStatusHistory", "Payment", "OrderItem", "Order", "Settings", "ShippingZone", "GatewayToken", "CartItem", "Cart", "Wishlist", "Review", "ProductAttribute",
              "ProductImage", "Variant", "Product", "Category", "Address", "Coupon",
              "Session", "Account", "Verification", "User"
     RESTART IDENTITY CASCADE`);
@@ -339,6 +369,7 @@ async function main() {
         couponCode: opts.withCoupon ? coupon.code : null,
         createdAt,
         items: { create: items },
+        history: { create: statusTimeline(status, opts.paymentMethod!, createdAt) },
         payments: {
           create: {
             method: opts.paymentMethod!,
@@ -383,7 +414,8 @@ async function main() {
     [1577, 175, [["corn", "1 kg", 1]], "DELIVERED"],
   ];
   for (const [number, ago, lines, status] of dianneOrders) {
-    await order({ number, userKey: "dianne", daysAgo: ago, lines, status, paymentStatus: "PAID", paymentMethod: "COD" });
+    // COD is paid in cash on delivery: unpaid until then.
+    await order({ number, userKey: "dianne", daysAgo: ago, lines, status, paymentStatus: status === "DELIVERED" ? "PAID" : "UNPAID", paymentMethod: "COD" });
   }
   await order({
     number: 4152,
@@ -400,6 +432,10 @@ async function main() {
   await order({ number: 9101, userKey: "dianne", daysAgo: 0, lines: [["green-apple", "1 kg", 2]], status: "PENDING_PAYMENT", paymentStatus: "UNPAID", paymentMethod: "BKASH" });
   await order({ number: 9102, userKey: "dianne", daysAgo: 1, lines: [["corn", "1 kg", 3], ["red-tomatoes", "1 kg", 1]], status: "PENDING_CONFIRMATION", paymentStatus: "UNPAID", paymentMethod: "COD" });
   await order({ number: 9103, userKey: "dianne", daysAgo: 12, lines: [["eggplant", "1 kg", 2]], status: "CANCELLED", paymentStatus: "UNPAID", paymentMethod: "COD" });
+  // Every Order Details state: failed online payment (Pay now), expired, paid via bKash (transaction id).
+  await order({ number: 9104, userKey: "dianne", daysAgo: 1, lines: [["red-capsicum", "1 kg", 2], ["green-chili", "500 g", 3]], status: "FAILED", paymentStatus: "UNPAID", paymentMethod: "SSLCOMMERZ" });
+  await order({ number: 9105, userKey: "dianne", daysAgo: 5, lines: [["fresh-indian-orange", "1 kg", 2]], status: "EXPIRED", paymentStatus: "UNPAID", paymentMethod: "BKASH" });
+  await order({ number: 9106, userKey: "dianne", daysAgo: 3, lines: [["green-capsicum", "1 kg", 3], ["corn", "1 kg", 2]], status: "DELIVERED", paymentStatus: "PAID", paymentMethod: "BKASH", trx: "BKA9X2M4Q1" });
 
   // Admin Order Management / Transaction mix (Paid/Unpaid; bKash, card/bank, COD; open/done/cancelled).
   const adminMix: Parameters<typeof order>[0][] = [
