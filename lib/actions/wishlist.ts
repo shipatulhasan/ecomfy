@@ -20,7 +20,7 @@ import { runAction } from "./safe-action";
 
 async function assertLiveProduct(productId: string) {
   const product = await prisma.product.findUnique({ where: { id: productId }, select: { status: true } });
-  if (!product || product.status !== "ACTIVE") throw new ActionError("This product is no longer available.");
+  if (!product || product.status !== "PUBLISHED") throw new ActionError("This product is no longer available.");
 }
 
 async function setWishlisted(productId: string, on: boolean) {

@@ -2,6 +2,12 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { availableStock, buildCartView, EMPTY_CART, lineIssue, type CartLine, type CartView } from "@/lib/cart/pricing";
 import { cartWhere, resolveCartOwner, type CartOwner } from "@/lib/cart/owner";
+import { firstImage, productImages } from "@/lib/catalog/images";
+
+const imageLite = (rows: Parameters<typeof firstImage>[0], alt: string) => {
+  const i = firstImage(rows, alt);
+  return i ? { url: i.url, alt: i.alt } : null;
+};
 
 /**
  * The visitor's cart with every price, stock level and total computed here from
@@ -47,7 +53,7 @@ export async function getCart(owner?: CartOwner | null): Promise<CartView> {
                   slug: true,
                   name: true,
                   status: true,
-                  images: { orderBy: { position: "asc" }, take: 1, select: { url: true, alt: true } },
+                  images: productImages(1),
                 },
               },
             },
@@ -67,13 +73,13 @@ export async function getCart(owner?: CartOwner | null): Promise<CartView> {
     slug: v.product.slug,
     name: v.product.name,
     variantName: v.name,
-    image: v.product.images[0] ?? null,
+    image: imageLite(v.product.images, v.product.name),
     unitCents: v.priceCents,
     compareAtCents: v.compareAtCents,
     quantity,
     stock,
     lineCents: v.priceCents * quantity,
-    issue: lineIssue(quantity, stock, v.product.status === "ACTIVE"),
+    issue: lineIssue(quantity, stock, v.product.status === "PUBLISHED"),
     };
   });
 

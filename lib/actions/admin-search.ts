@@ -39,10 +39,10 @@ export async function adminSearchAction(input: unknown): Promise<ActionResult<Ad
         : [],
       can(user, "products:read")
         ? prisma.product.findMany({
-            where: { OR: [{ name: contains }, { code: contains }] },
+            where: { OR: [{ name: contains }, { sku: contains }] },
             orderBy: { name: "asc" },
             take: TAKE,
-            select: { id: true, name: true, code: true },
+            select: { id: true, name: true, sku: true },
           })
         : [],
       can(user, "customers:read")
@@ -62,7 +62,7 @@ export async function adminSearchAction(input: unknown): Promise<ActionResult<Ad
         detail: `${o.orderNumber} · ${o.email}`,
         href: `/admin/orders/${o.number}`,
       })),
-      products: products.map((p) => ({ id: p.id, label: p.name, detail: `#${p.code}`, href: `/admin/products/${p.id}` })),
+      products: products.map((p) => ({ id: p.id, label: p.name, detail: `#${p.sku}`, href: `/admin/products/${p.id}` })),
       customers: customers.map((c) => ({ id: c.id, label: c.name, detail: c.email, href: `/admin/customers/${c.id}` })),
     };
   });

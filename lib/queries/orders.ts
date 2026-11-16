@@ -208,7 +208,7 @@ export async function getUserOrder(userId: string, number: number): Promise<Orde
   const paid = o.payments[0];
   const items = o.items.map(({ variant, ...i }) => ({
     ...i,
-    productSlug: variant?.product.status === "ACTIVE" ? variant.product.slug : null,
+    productSlug: variant?.product.status === "PUBLISHED" ? variant.product.slug : null,
   }));
   const online = o.paymentMethod !== "COD";
 

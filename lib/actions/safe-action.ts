@@ -30,10 +30,7 @@ export async function runAction<S extends z.ZodType, T>(
     return {
       ok: false,
       error: "Please fix the highlighted fields.",
-      fieldErrors: z.flattenError(parsed.error).fieldErrors as Record<
-        string,
-        string[] | undefined
-      >,
+      fieldErrors: fieldErrorsOf(parsed.error),
     };
   }
 
@@ -41,10 +38,26 @@ export async function runAction<S extends z.ZodType, T>(
     return { ok: true, data: await fn(parsed.data) };
   } catch (err) {
     unstable_rethrow(err); // let redirect()/notFound() propagate
-    if (err instanceof ActionError) return { ok: false, error: err.message };
+    if (err instanceof ActionError) {
+      return err.fieldErrors ? { ok: false, error: err.message, fieldErrors: err.fieldErrors } : { ok: false, error: err.message };
+    }
     console.error("[action]", err);
     return { ok: false, error: "Something went wrong. Please try again." };
   }
+}
+
+/**
+ * Top-level keys as before (z.flattenError), plus a dotted path for every nested
+ * issue ("variants.0.sku") so array/object forms can show the message in place.
+ */
+function fieldErrorsOf(error: z.ZodError): Record<string, string[] | undefined> {
+  const out: Record<string, string[] | undefined> = { ...z.flattenError(error).fieldErrors };
+  for (const issue of error.issues) {
+    if (issue.path.length < 2) continue;
+    const key = issue.path.join(".");
+    (out[key] ??= []).push(issue.message);
+  }
+  return out;
 }
 
 /**

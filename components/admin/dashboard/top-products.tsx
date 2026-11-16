@@ -21,7 +21,7 @@ export async function TopProducts({ range }: { range: DateRange }) {
         }
       />
       <TopProductsList
-        products={products.map((p) => ({ id: p.id, name: p.name, code: p.code, imageUrl: p.imageUrl, price: formatPrice(p.priceCents), units: p.units }))}
+        products={products.map((p) => ({ id: p.id, name: p.name, code: p.sku, imageUrl: p.imageUrl, price: formatPrice(p.priceCents), units: p.units }))}
       />
     </DashCard>
   );

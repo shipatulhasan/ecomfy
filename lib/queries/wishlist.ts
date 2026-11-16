@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth-guards";
 import { readGuestWishlist } from "@/lib/wishlist-cookie";
+import { firstImage, productImages } from "@/lib/catalog/images";
 
 /**
  * Wishlist for the signed-in user (Wishlist table) or the guest (cookie ids,
@@ -28,7 +29,7 @@ const rowSelect = {
   slug: true,
   name: true,
   status: true,
-  images: { orderBy: { position: "asc" as const }, take: 1, select: { url: true, alt: true } },
+  images: productImages(1),
   variants: {
     orderBy: [{ isDefault: "desc" as const }, { createdAt: "asc" as const }],
     select: { id: true, name: true, priceCents: true, compareAtCents: true, stock: true },
@@ -49,7 +50,7 @@ export async function getWishlistIds(): Promise<string[]> {
   const ids = await readGuestWishlist();
   if (ids.length === 0) return [];
   // Cookie ids are untrusted: keep only live products, in cookie order.
-  const live = await prisma.product.findMany({ where: { id: { in: ids }, status: "ACTIVE" }, select: { id: true } });
+  const live = await prisma.product.findMany({ where: { id: { in: ids }, status: "PUBLISHED" }, select: { id: true } });
   const ok = new Set(live.map((p) => p.id));
   return ids.filter((id) => ok.has(id));
 }
@@ -62,13 +63,13 @@ export async function getWishlist(): Promise<WishlistRow[]> {
   return ids.flatMap((id) => {
     const p = byId.get(id);
     const first = p?.variants[0];
-    if (!p || !first || p.status !== "ACTIVE") return [];
+    if (!p || !first || p.status !== "PUBLISHED") return [];
     return [
       {
         productId: p.id,
         slug: p.slug,
         name: p.name,
-        image: p.images[0] ?? null,
+        image: (() => { const i = firstImage(p.images, p.name); return i ? { url: i.url, alt: i.alt } : null; })(),
         priceCents: first.priceCents,
         compareAtCents: first.compareAtCents,
         stock: p.variants.reduce((n, v) => n + Math.max(0, v.stock), 0),

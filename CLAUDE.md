@@ -154,4 +154,4 @@ Below 1024px the storefront behaves like a native app. Laptop and desktop follow
 
 ## Commands
 
-`pnpm dev` · `pnpm build` · `pnpm lint` (ESLint + design rules) · `pnpm lint:design` · `pnpm typecheck` · `pnpm tokens` · `pnpm assets:crop` · `pnpm icons` · `pnpm db:migrate` · `pnpm db:seed` · `pnpm db:studio` · `pnpm admin:create` (first admin only) · `pnpm admin:invite <email> <STAFF|ADMIN>`
+`pnpm dev` · `pnpm build` · `pnpm lint` (ESLint + design rules) · `pnpm lint:design` · `pnpm typecheck` · `pnpm tokens` · `pnpm assets:crop` · `pnpm icons` · `pnpm db:migrate` · `pnpm db:seed` · `pnpm db:studio` · `pnpm admin:create` (first admin only) · `pnpm admin:invite <email> <STAFF|ADMIN>` · `pnpm storage:cleanup [--hours 24]`

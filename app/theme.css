@@ -60,6 +60,11 @@
   --chart-5: oklch(0.6358 0.2088 25.413); /* #EF4343 */
   --auth-hero-from: oklch(0.5649 0.1782 144.903); /* #008F24 */
   --auth-hero-to: oklch(0.3091 0.103 142.787); /* #013C02 */
+  --swatch-mint: oklch(0.9147 0.046 133.208); /* #D7EACB */
+  --swatch-rose: oklch(0.8883 0.0281 9.428); /* #ECD3D6 */
+  --swatch-silver: oklch(0.8923 0.0096 222.067); /* #D5DDE0 */
+  --swatch-cream: oklch(0.9241 0.0399 99.336); /* #ECE7C9 */
+  --swatch-graphite: oklch(0.4065 0.0073 239.986); /* #464A4D */
   --radius: 0.5rem;
   --elevation-card-hover: 0 0 12px 0 rgba(32, 181, 38, 0.32);
   --elevation-dropdown: 0 8px 40px 0 rgba(0, 38, 3, 0.08);
@@ -158,6 +163,11 @@ body:has(.theme-admin) {
   --chart-5: oklch(0.6358 0.2088 25.413); /* #EF4343 */
   --auth-hero-from: oklch(0.5649 0.1782 144.903); /* #008F24 */
   --auth-hero-to: oklch(0.3091 0.103 142.787); /* #013C02 */
+  --swatch-mint: oklch(0.9147 0.046 133.208); /* #D7EACB */
+  --swatch-rose: oklch(0.8883 0.0281 9.428); /* #ECD3D6 */
+  --swatch-silver: oklch(0.8923 0.0096 222.067); /* #D5DDE0 */
+  --swatch-cream: oklch(0.9241 0.0399 99.336); /* #ECE7C9 */
+  --swatch-graphite: oklch(0.4065 0.0073 239.986); /* #464A4D */
   --radius: 0.5rem;
   --font-sans: var(--font-admin);
 
@@ -228,6 +238,11 @@ body:has(.theme-admin) {
   --color-logo-leaf: var(--logo-leaf);
   --color-auth-hero-from: var(--auth-hero-from);
   --color-auth-hero-to: var(--auth-hero-to);
+  --color-swatch-mint: var(--swatch-mint);
+  --color-swatch-rose: var(--swatch-rose);
+  --color-swatch-silver: var(--swatch-silver);
+  --color-swatch-cream: var(--swatch-cream);
+  --color-swatch-graphite: var(--swatch-graphite);
   --shadow-card-hover: var(--elevation-card-hover);
   --shadow-dropdown: var(--elevation-dropdown);
   --shadow-modal: var(--elevation-modal);

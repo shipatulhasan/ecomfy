@@ -165,6 +165,11 @@ const extraColors = [
   "logo-leaf",
   "auth-hero-from",
   "auth-hero-to",
+  "swatch-mint",
+  "swatch-rose",
+  "swatch-silver",
+  "swatch-cream",
+  "swatch-graphite",
 ];
 
 const sf = tokens.storefront;
@@ -177,7 +182,7 @@ for (const key of ["primary-hover"]) {
   if (!sf.color[key]) sf.color[key] = sf.color["brand-dark"]!;
 }
 for (const key of Object.keys(ad.color)) {
-  if (key.startsWith("sidebar") || key.startsWith("chart") || key.startsWith("auth-hero")) {
+  if (key.startsWith("sidebar") || key.startsWith("chart") || key.startsWith("auth-hero") || key.startsWith("swatch")) {
     sf.color[key] ??= ad.color[key]!;
   }
 }

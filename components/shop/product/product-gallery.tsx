@@ -123,6 +123,8 @@ function DesktopGallery({
             sizes={MAIN_SIZES}
             loading={i === 0 ? "eager" : "lazy"}
             fetchPriority={i === 0 ? "high" : undefined}
+            placeholder={img.blurDataURL ? "blur" : "empty"}
+            blurDataURL={img.blurDataURL ?? undefined}
             aria-hidden={i !== active}
             className={cn(
               "object-contain transition-opacity duration-300 motion-reduce:transition-none",
@@ -177,6 +179,8 @@ function MobileGallery({ images, name }: { images: ProductImageData[]; name: str
               sizes={MAIN_SIZES}
               loading={i === 0 ? "eager" : "lazy"}
               fetchPriority={i === 0 ? "high" : undefined}
+              placeholder={img.blurDataURL ? "blur" : "empty"}
+              blurDataURL={img.blurDataURL ?? undefined}
               className="object-contain"
             />
           </li>

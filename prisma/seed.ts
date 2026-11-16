@@ -3,16 +3,23 @@
  * Run: pnpm db:seed  (copies designs/assets → public/seed first)
  *
  * Idempotent: TRUNCATEs every app table, then inserts. Refuses to run in production.
+ * Product images are uploaded through lib/storage into THIS Neon branch's bucket
+ * ("uploads": products/{productId}/{uuid}.png); the bucket's products/, media/
+ * and tmp/ folders are emptied first.
  * Users are inserted directly (User + credential Account) with passwords hashed by
  * Better Auth's own hashPassword, so they can sign in through the normal flow.
  */
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hashPassword } from "better-auth/crypto";
+import sharp from "sharp";
 import { PrismaClient, type Prisma } from "../lib/generated/prisma/client";
+import { derivePrice, UNLIMITED_STOCK } from "../lib/admin/products/rules";
+import { neonStorage, storageKeys } from "../lib/storage/core";
 import { hashInviteToken, inviteExpiry, inviteUrl, newInviteToken } from "../lib/admin/invites";
 import { seedDashboard } from "./seed-dashboard";
 import { categories, chineseCabbageReviews, products, REVIEW_BODIES, slugify, type SeedProduct, type SeedVariant } from "./seed-data";
@@ -52,6 +59,47 @@ function asset(group: "products" | "categories" | "banners" | "avatars", slug: s
  * USD is display-only, derived at Settings.usdToBdtRate.
  */
 const cents = (taka: number) => Math.round(taka * 100);
+
+// ───────────────────────── storage ─────────────────────────
+
+/** Empties the folders the app writes to in this branch's bucket. */
+async function resetBucket() {
+  const keys: string[] = [];
+  for (const prefix of ["products/", "media/", "tmp/"]) for await (const o of neonStorage.list(prefix)) keys.push(o.key);
+  await neonStorage.delete(keys);
+  return keys.length;
+}
+
+/** Uploads one manifest crop for a product and creates its Media row (with blur). */
+async function uploadProductImage(productId: string, assetSlug: string, alt: string): Promise<string> {
+  const a = asset("products", assetSlug);
+  const file = await readFile(resolve(import.meta.dirname, "../designs/assets", a.url.replace(/^\/seed\//, "")));
+  const key = storageKeys.product(productId, randomUUID(), "png");
+  const blur = await sharp(file).resize(16, 16, { fit: "inside" }).webp({ quality: 40 }).toBuffer();
+  await neonStorage.put(key, file, "image/png");
+  const media = await prisma.media.create({
+    data: {
+      key,
+      url: neonStorage.publicUrl(key),
+      originalName: `${assetSlug}.png`,
+      mime: "image/png",
+      size: file.length,
+      width: a.width,
+      height: a.height,
+      alt,
+      blurDataURL: `data:image/webp;base64,${blur.toString("base64")}`,
+    },
+    select: { id: true },
+  });
+  return media.id;
+}
+
+/** Variant prices: regular/sale + the derived selling price for the product's sale window. */
+function variantPrices(price: number, compareAt: number | undefined, window: { saleStartsAt: Date | null; dealEndsAt: Date | null }) {
+  const regularPriceCents = cents(compareAt ?? price);
+  const salePriceCents = compareAt ? cents(price) : null;
+  return { regularPriceCents, salePriceCents, ...derivePrice({ regularPriceCents, salePriceCents }, window) };
+}
 
 /** PDP Additional Information rows for products that don't list their own. */
 function defaultAttributes(p: SeedProduct, v: SeedVariant) {
@@ -132,7 +180,7 @@ async function reset() {
   // Table names are the Prisma model names (no @@map).
   await prisma.$executeRawUnsafe(`
     TRUNCATE "AuditLog", "AdminInvite", "OrderStatusHistory", "Payment", "OrderItem", "Order", "Settings", "ShippingZone", "GatewayToken", "CartItem", "Cart", "Wishlist", "Review", "ProductAttribute",
-             "ProductImage", "Variant", "Product", "Category", "Address", "Coupon",
+             "ProductImage", "Media", "SlugRedirect", "Variant", "Product", "Category", "Address", "Coupon",
              "Session", "Account", "Verification", "User"
     RESTART IDENTITY CASCADE`);
 }
@@ -166,6 +214,58 @@ async function seedUsers() {
 
 // ───────────────────────── catalog ─────────────────────────
 
+/**
+ * Size × Color variants with per-variant images (admin Variants + image→variant
+ * assignment): Bell Pepper Mix, Red/Green × 500 g/1 kg.
+ */
+async function seedVariantShowcase(categoryId: string) {
+  const id = randomUUID();
+  const window = { saleStartsAt: null, dealEndsAt: null };
+  const combos = ["Red", "Green"].flatMap((color) =>
+    ["500 g", "1 kg"].map((size) => ({ color, size, price: size === "1 kg" ? 12.5 : 6.9, stock: color === "Red" ? 4 : 60 })),
+  );
+  await prisma.product.create({
+    data: {
+      id,
+      name: "Bell Pepper Mix",
+      slug: "bell-pepper-mix",
+      sku: "BPM-001",
+      status: "PUBLISHED",
+      description: "<p>Crunchy bell peppers, picked ripe. Choose a colour and a pack size.</p>",
+      shortDescription: "Red or green bell peppers in two pack sizes.",
+      brand: "Green Valley",
+      productType: "Organic",
+      tags: ["Healthy", "Vegetarian"],
+      priceCents: cents(combos[0]!.price),
+      categoryId,
+      attributes: { create: [{ name: "Type", value: "Organic", sortOrder: 0 }] },
+      variants: {
+        create: combos.map((c, i) => ({
+          sku: `BPM-${c.color.toUpperCase()}-${c.size.replace(/\s+/g, "").toUpperCase()}`,
+          name: `${c.color} / ${c.size}`,
+          size: c.size,
+          color: c.color,
+          weightGrams: c.size === "1 kg" ? 1000 : 500,
+          ...variantPrices(c.price, i === 1 ? 14.9 : undefined, window),
+          stock: c.stock,
+          isDefault: i === 0,
+        })),
+      },
+    },
+  });
+  const variants = await prisma.variant.findMany({ where: { productId: id }, select: { id: true, color: true, size: true } });
+  const shots: [asset: string, color: string | null][] = [
+    ["red-capsicum", "Red"],
+    ["green-capsicum", "Green"],
+    ["red-chili", null],
+  ];
+  for (const [sortOrder, [shot, color]] of shots.entries()) {
+    const mediaId = await uploadProductImage(id, shot, `Bell Pepper Mix, ${color ?? "detail"}`);
+    const variant = color ? variants.find((v) => v.color === color && v.size === "1 kg") : null;
+    await prisma.productImage.create({ data: { productId: id, mediaId, sortOrder, variantId: variant?.id ?? null } });
+  }
+}
+
 async function seedCatalog() {
   const categoryIds: Record<string, string> = {};
   for (const [i, c] of categories.entries()) {
@@ -178,17 +278,42 @@ async function seedCatalog() {
   // slug → { productId, variants by name }
   const catalog: Record<string, { id: string; name: string; image: string; variants: Record<string, { id: string; name: string; priceCents: number }> }> = {};
 
+  const handWritten = products.findIndex((p) => p.name === "Organic Green Apple"); // padded() starts here
   for (const [i, p] of products.entries()) {
     const slug = slugify(p.name);
-    const img = asset("products", p.image ?? slug);
     const defaultVariant = p.variants.find((v) => v.isDefault) ?? p.variants[0]!;
-    const image = img.url;
-    const code = String(21231 + i).padStart(6, "0"); // admin Product List shows "021231"
-    const product = await prisma.product.create({
+    const sku = String(21231 + i).padStart(6, "0"); // admin Product List shows "021231"
+    const id = randomUUID();
+
+    // Admin list variety (padded products only; the hand-written ones are on the design screens).
+    const j = handWritten >= 0 && i >= handWritten ? i - handWritten : -1;
+    const status = j % 10 === 3 ? "DRAFT" : j % 10 === 7 ? "ARCHIVED" : "PUBLISHED";
+    const untracked = j >= 0 && j % 9 === 4;
+    const lowStock = j >= 0 && j % 5 === 2;
+    const window = {
+      saleStartsAt: j === 5 ? new Date(Date.now() + 2 * 86_400_000) : null, // scheduled sale, not started yet
+      dealEndsAt: p.dealDays ? new Date(Date.now() + p.dealDays * 86_400_000) : null,
+    };
+    const multi = p.variants.length > 1;
+    const variants = p.variants.map((v, vi) => ({
+      sku: vi === 0 && p.sku ? p.sku : `${sku}-${slugify(v.name)}`,
+      name: v.name,
+      size: multi ? v.name : null,
+      weightGrams: v.weightGrams,
+      color: p.color,
+      ...variantPrices(v.price, v.compareAt, window),
+      stock: untracked ? UNLIMITED_STOCK : lowStock ? 2 + vi : v.stock,
+      isDefault: v.isDefault ?? vi === 0,
+    }));
+
+    await prisma.product.create({
       data: {
+        id,
         name: p.name,
         slug,
-        code,
+        sku,
+        status,
+        trackInventory: !untracked,
         shortDescription: p.shortDescription,
         description: p.description!,
         brand: p.brand,
@@ -196,43 +321,34 @@ async function seedCatalog() {
         tags: p.tags ?? [],
         videoUrl: p.videoUrl,
         videoPosterUrl: p.videoUrl ? asset("banners", "pdp-video").url : null,
+        seoTitle: slug === "chinese-cabbage" ? "Chinese Cabbage, fresh & organic | Ecobazar" : null,
+        seoDescription: slug === "chinese-cabbage" ? "Crisp organic Chinese cabbage from Farmary, delivered fresh." : null,
         attributes: {
           create: (p.attributes ?? defaultAttributes(p, defaultVariant)).map((a, sortOrder) => ({ ...a, sortOrder })),
         },
         isFeatured: p.isFeatured ?? false,
-        priceCents: cents(defaultVariant.price), // denormalized for Shop sort/filter
-        dealEndsAt: p.dealDays ? new Date(Date.now() + p.dealDays * 86_400_000) : null,
+        ...window,
+        priceCents: variants.find((v) => v.isDefault)!.priceCents, // denormalized for Shop sort/filter
         categoryId: categoryIds[p.category]!,
         createdAt: daysAgo(90 - i),
-        // Main image first, then the gallery (PDP / Quick View thumbnails) in order.
-        images: {
-          create: [p.image ?? slug, ...(p.gallery ?? [])].map((s, position) => {
-            const a = asset("products", s);
-            return { url: a.url, alt: position === 0 ? p.name : `${p.name}, view ${position + 1}`, width: a.width, height: a.height, position };
-          }),
-        },
-        variants: {
-          create: p.variants.map((v, vi) => ({
-            sku: vi === 0 && p.sku ? p.sku : `${code}-${slugify(v.name)}`,
-            name: v.name,
-            weightGrams: v.weightGrams,
-            color: p.color,
-            priceCents: cents(v.price),
-            compareAtCents: v.compareAt ? cents(v.compareAt) : null,
-            stock: v.stock,
-            isDefault: v.isDefault ?? vi === 0,
-          })),
-        },
+        variants: { create: variants },
       },
-      include: { variants: true },
     });
+    // Main image first, then the gallery (PDP / Quick View thumbnails) in order.
+    const shots = [p.image ?? slug, ...(p.gallery ?? [])];
+    const mediaIds = await Promise.all(shots.map((s, n) => uploadProductImage(id, s, n === 0 ? p.name : `${p.name}, view ${n + 1}`)));
+    await prisma.productImage.createMany({ data: mediaIds.map((mediaId, sortOrder) => ({ productId: id, mediaId, sortOrder })) });
+
+    const product = await prisma.product.findUniqueOrThrow({ where: { id }, include: { variants: true, images: { orderBy: { sortOrder: "asc" }, take: 1, include: { media: true } } } });
     catalog[slug] = {
       id: product.id,
       name: product.name,
-      image,
+      image: product.images[0]!.media.url,
       variants: Object.fromEntries(product.variants.map((v) => [v.name, { id: v.id, name: v.name, priceCents: v.priceCents }])),
     };
   }
+
+  await seedVariantShowcase(categoryIds["fresh-vegetables"]!);
   return catalog;
 }
 
@@ -265,6 +381,7 @@ type Line = [slug: string, variant: string, qty: number];
 async function main() {
   console.log("Resetting tables…");
   await reset();
+  console.log(`Emptied bucket folders (${await resetBucket()} objects). Uploading product images…`);
 
   const u = await seedUsers();
   const catalog = await seedCatalog();
@@ -542,22 +659,30 @@ async function main() {
     ["Indian Orange Bulk 5 kg", "fresh-indian-orange", 34.99],
   ];
   for (const [i, [name, image, taka]] of drafts.entries()) {
-    const img = asset("products", image);
+    const id = randomUUID();
     await prisma.product.create({
       data: {
+        id,
         name,
         slug: slugify(name),
-        code: String(30001 + i).padStart(6, "0"),
+        sku: String(30001 + i).padStart(6, "0"),
         description: `<p>${name}, waiting to be published.</p>`,
         status: "DRAFT",
         priceCents: cents(taka),
         categoryId: fruit.id,
         createdAt: new Date(Date.now() - (i + 1) * 3_600_000),
-        images: { create: { url: img.url, alt: name, width: img.width, height: img.height } },
-        variants: { create: { sku: `DRAFT-${i + 1}`, name: "1 pack", priceCents: cents(taka), stock: 50, isDefault: true } },
+        variants: {
+          create: { sku: `DRAFT-${i + 1}`, name: "1 pack", regularPriceCents: cents(taka), priceCents: cents(taka), stock: 50, isDefault: true },
+        },
       },
     });
+    const mediaId = await uploadProductImage(id, image, name);
+    await prisma.productImage.create({ data: { productId: id, mediaId, sortOrder: 0 } });
   }
+
+  // One soft-deleted product that still appears on past orders (admin list hides it).
+  const gone = catalog["himsagar-mango"];
+  if (gone) await prisma.product.update({ where: { id: gone.id }, data: { deletedAt: new Date(), status: "ARCHIVED" } });
 
   // Invites: one pending (link printed below), one expired, one already used.
   const origin = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";

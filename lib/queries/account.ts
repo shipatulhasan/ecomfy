@@ -63,7 +63,7 @@ export async function getDefaultBillingAddress(userId: string): Promise<AccountA
 export async function getAccountStats(userId: string): Promise<{ orders: number; wishlist: number; cart: number }> {
   const [orders, wishlist, cart] = await Promise.all([
     prisma.order.count({ where: { userId } }),
-    prisma.wishlist.count({ where: { userId, product: { status: "ACTIVE" } } }),
+    prisma.wishlist.count({ where: { userId, product: { status: "PUBLISHED" } } }),
     prisma.cartItem.aggregate({ where: { cart: { userId } }, _sum: { quantity: true } }),
   ]);
   return { orders, wishlist, cart: cart._sum.quantity ?? 0 };

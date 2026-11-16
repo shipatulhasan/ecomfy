@@ -5,9 +5,12 @@ export type ActionResult<T = void> =
 
 /** Throw inside an action to return a user-facing error message. */
 export class ActionError extends Error {
-  constructor(message: string) {
+  /** Optional per-field messages (dotted paths for nested fields: "variants.0.sku"). */
+  fieldErrors?: Record<string, string[]>;
+  constructor(message: string, fieldErrors?: Record<string, string[]>) {
     super(message);
     this.name = "ActionError";
+    this.fieldErrors = fieldErrors;
   }
 }
 

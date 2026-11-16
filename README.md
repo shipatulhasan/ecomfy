@@ -96,6 +96,29 @@ Open the site through the tunnel URL.
   - The gateway list is restricted by `SSLCZ_CHANNELS` in `lib/payments/sslcommerz.ts` (cards + internet banking). Check on the sandbox page that bKash isn't offered.
 - **IPN-before-redirect:** in the SSLCommerz sandbox panel, set the IPN URL to `<APP_URL>/api/payments/sslcommerz/ipn`. Close the tab before the success redirect fires; the IPN alone marks the order paid.
 
+## Product media (Neon Object Storage)
+
+Admin product images live in Neon Object Storage, which is S3-compatible and path-style only. The code is in `lib/storage/` (server-only; `core.ts` is shared with the seed and scripts).
+
+- **Env:** `AWS_ENDPOINT_URL_S3`, `AWS_REGION` (default `auto`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`. Neon injects these per branch. There's no bucket variable: the branch's bucket is named `uploads` (`BUCKET` in `lib/storage/core.ts`).
+- **Branches:** each Neon branch has its own copy of the files (copy-on-write from the parent) and its own endpoint host. `pnpm db:seed` empties `products/`, `media/` and `tmp/` in **the current branch's** bucket and re-uploads the seed images there.
+- **Serving:** the bucket is `public_read`, so objects are served straight from `{AWS_ENDPOINT_URL_S3}/uploads/{key}`.
+  - `next.config.ts` adds that host to `images.remotePatterns` at build time, so rebuild after switching branches.
+  - The UI renders `mediaUrl(media.key)`, not the stored `Media.url`, so a branched database points at its own files.
+  - Objects are uploaded with `Cache-Control: public, max-age=31536000, immutable`. Keys are uuids and never change.
+- **Keys:**
+  - `products/{productId}/{uuid}.{ext}`: images attached to a product.
+  - `tmp/{uuid}.{ext}`: uploaded in the product form, moved into the product folder on save.
+  - `media/{uuid}.{ext}`: uploaded in the Product Media library.
+  - Original file names are kept only in `Media.originalName`, never in a key.
+- **Uploads go browser → bucket** through a presigned PUT, valid for 5 minutes, with Content-Type and Content-Length signed:
+  1. `getUploadUrl` checks `products:write`, the type (jpg/png/webp/avif) and `Settings.maxUploadMb`.
+  2. The browser PUTs the file.
+  3. `confirmUpload` re-reads the object with sharp, creates the `Media` row (size + blur placeholder), and deletes anything that isn't the declared image.
+- **CORS:** the bucket's rule allows browser PUTs. If uploads fail with a CORS error on a new branch, set the rule with `PutBucketCors` for your origin.
+- **Cleanup:** `/api/cron/media-cleanup` runs daily (`vercel.json`, `Authorization: Bearer $CRON_SECRET`) and deletes `tmp/` uploads older than 24h. Locally: `pnpm storage:cleanup [--hours 24]`.
+- **Sale windows:** the "Expiration" dates on a product are applied on save and by `/api/cron/expire-orders` (every 5 min).
+
 ## Commands
 
 `pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm db:migrate` · `pnpm db:seed` · `pnpm db:studio` · `pnpm tokens` · `pnpm assets:crop` · `pnpm icons`

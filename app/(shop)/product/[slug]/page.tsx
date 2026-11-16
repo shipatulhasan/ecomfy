@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { Suspense } from "react";
 import { Container } from "@/components/shared/container";
 import { PageTransition } from "@/components/shared/page-transition";
@@ -13,7 +13,7 @@ import { ProductTabs } from "@/components/shop/product/product-tabs/product-tabs
 import { RelatedProducts, RelatedProductsSkeleton } from "@/components/shop/product/related-products";
 import { parsePdpTab, parseReviewPage, productCopy } from "@/lib/config/product";
 import { shopContent } from "@/lib/config/shop";
-import { getProductPage, type ProductPageData } from "@/lib/queries/product";
+import { getProductPage, getSlugRedirect, type ProductPageData } from "@/lib/queries/product";
 import { getReviews, getReviewStats } from "@/lib/queries/reviews";
 import { jsonLdString, productJsonLd } from "@/lib/seo/product-jsonld";
 import { shopHref } from "@/lib/shop-params";
@@ -40,11 +40,15 @@ type Props = PageProps<"/product/[slug]">;
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const product = await getProductPage(slug);
-  if (!product) return { title: productCopy.notFoundTitle };
-  const description = product.shortDescription ?? product.descriptionText.slice(0, 160);
+  if (!product) {
+    const to = await getSlugRedirect(slug);
+    if (to) permanentRedirect(`/product/${to}`);
+    return { title: productCopy.notFoundTitle };
+  }
+  const description = product.seoDescription ?? product.shortDescription ?? product.descriptionText.slice(0, 160);
   const url = `/product/${product.slug}`;
   return {
-    title: product.name,
+    title: product.seoTitle ?? product.name,
     description,
     alternates: { canonical: url },
     openGraph: {
@@ -81,7 +85,12 @@ async function ProductPageContent({
   searchParams: Props["searchParams"];
 }) {
   const [product, query] = await Promise.all([slug.then(getProductPage), searchParams]);
-  if (!product) notFound();
+  if (!product) {
+    // A renamed product: 308 to its current URL (SlugRedirect).
+    const to = await slug.then(getSlugRedirect);
+    if (to) permanentRedirect(`/product/${to}`);
+    notFound();
+  }
   const tab = parsePdpTab(query.tab);
   const rpage = parseReviewPage(query.rpage);
 

@@ -5,6 +5,7 @@ import { dhakaWeek } from "@/lib/admin/date-range";
 import { requirePermission } from "@/lib/auth-guards";
 import { CacheTags } from "@/lib/cache-tags";
 import { prisma } from "@/lib/db";
+import { mediaUrl } from "@/lib/storage/core";
 import { Prisma } from "@/lib/generated/prisma/client";
 import type { OrderStatus, PaymentMethod, PaymentStatus } from "@/lib/generated/prisma/enums";
 
@@ -149,7 +150,7 @@ async function weeklyReport(week: WeekKey, start: string, end: string, days: str
         SELECT COALESCE(sum(GREATEST(v."stock" - v."reserved", 0)), 0) AS available
         FROM "Variant" v WHERE v."productId" = p."id"
       ) s ON true
-      WHERE p."status" = 'ACTIVE'`,
+      WHERE p."status" = 'PUBLISHED'`,
   ]);
 
   const c = new Map(customersByDay.map((r) => [r.day, Number(r.n)]));
@@ -174,7 +175,7 @@ async function weeklyReport(week: WeekKey, start: string, end: string, days: str
 export type ProductSales = {
   id: string;
   name: string;
-  code: string;
+  sku: string;
   priceCents: number;
   imageUrl: string | null;
   units: number;
@@ -200,10 +201,10 @@ async function productSales(start: string, end: string, categorySlug: string | n
     ? Prisma.sql`AND p."categoryId" = (SELECT "id" FROM "Category" WHERE "slug" = ${categorySlug})`
     : Prisma.empty;
   const rows = await prisma.$queryRaw<
-    { id: string; name: string; code: string; priceCents: number; imageUrl: string | null; units: bigint; orders: bigint; available: bigint }[]
+    { id: string; name: string; sku: string; priceCents: number; imageUrl: string | null; units: bigint; orders: bigint; available: bigint }[]
   >`
-    SELECT p."id", p."name", p."code", p."priceCents",
-      (SELECT i."url" FROM "ProductImage" i WHERE i."productId" = p."id" ORDER BY i."position" LIMIT 1) AS "imageUrl",
+    SELECT p."id", p."name", p."sku", p."priceCents",
+      (SELECT m."key" FROM "ProductImage" i JOIN "Media" m ON m."id" = i."mediaId" WHERE i."productId" = p."id" ORDER BY i."sortOrder" LIMIT 1) AS "imageUrl",
       sum(oi."quantity") AS units,
       count(DISTINCT o."id") AS orders,
       (SELECT COALESCE(sum(GREATEST(v2."stock" - v2."reserved", 0)), 0) FROM "Variant" v2 WHERE v2."productId" = p."id") AS available
@@ -219,6 +220,7 @@ async function productSales(start: string, end: string, categorySlug: string | n
     LIMIT ${limit}`;
   return rows.map((r) => ({
     ...r,
+    imageUrl: r.imageUrl ? mediaUrl(r.imageUrl) : null,
     units: Number(r.units),
     orders: Number(r.orders),
     available: Number(r.available),
@@ -291,7 +293,7 @@ async function addNewProduct(): Promise<AddNewProductData> {
     name: true,
     priceCents: true,
     status: true,
-    images: { orderBy: { position: "asc" as const }, take: 1, select: { url: true } },
+    images: { orderBy: { sortOrder: "asc" as const }, take: 1, select: { media: { select: { key: true } } } },
   };
   const [categories, drafts, allCategories] = await Promise.all([
     prisma.category.findMany({
@@ -309,7 +311,7 @@ async function addNewProduct(): Promise<AddNewProductData> {
       : await prisma.product.findMany({ orderBy: { createdAt: "desc" }, take: 3, select: productSelect });
   return {
     categories: categories.map(({ _count, ...c }) => ({ ...c, products: _count.products })),
-    products: products.map(({ images, ...p }) => ({ ...p, imageUrl: images[0]?.url ?? null })),
+    products: products.map(({ images, ...p }) => ({ ...p, imageUrl: images[0] ? mediaUrl(images[0].media.key) : null })),
     categoryOptions: allCategories,
   };
 }

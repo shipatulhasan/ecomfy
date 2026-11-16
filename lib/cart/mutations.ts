@@ -14,7 +14,7 @@ export async function addVariantToCart(variantId: string, quantity: number): Pro
     where: { id: variantId },
     select: { stock: true, reserved: true, product: { select: { status: true } } },
   });
-  if (!variant || variant.product.status !== "ACTIVE") {
+  if (!variant || variant.product.status !== "PUBLISHED") {
     throw new ActionError("This product is no longer available.");
   }
   const cap = maxLineQuantity(availableStock(variant));

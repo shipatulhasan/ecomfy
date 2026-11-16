@@ -29,10 +29,17 @@ enum CustomerStatus {
   VIP
 }
 
+/// Admin Product List "Status". Only PUBLISHED products reach the storefront.
 enum ProductStatus {
   DRAFT
-  ACTIVE
+  PUBLISHED
   ARCHIVED
+}
+
+/// Admin Add Product "Stock Status": used when inventory isn't tracked ("Unlimited").
+enum StockStatus {
+  IN_STOCK
+  OUT_OF_STOCK
 }
 
 enum AddressKind {
@@ -116,6 +123,7 @@ model User {
 
   auditLogs   AuditLog[]
   invitesSent AdminInvite[] @relation("InvitedBy")
+  media       Media[]
 
   @@index([role])
 }
@@ -210,76 +218,133 @@ model Category {
 }
 
 model Product {
-  id               String        @id @default(cuid())
-  name             String
-  slug             String        @unique // added: URL segment
-  code             String        @unique // admin Product List id ("021231")
-  shortDescription String? // PDP summary under price
+  id                String        @id @default(cuid())
+  name              String
+  slug              String        @unique // added: URL segment
+  sku               String        @unique // admin Product List id ("021231"); variant SKUs are separate
+  shortDescription  String? // PDP summary under price
   /// PDP "Descriptions" tab. HTML (p, ul/ol/li, strong, em, a, h3/h4), sanitized on read (lib/rich-text.ts).
-  description      String
-  brand            String? // PDP "Brand"
-  productType      String? // PDP Additional Info "Type" (e.g. Organic)
-  tags             String[] // PDP "Tag"
-  videoUrl         String? // PDP Descriptions tab video
-  videoPosterUrl   String? // added: poster image for the video (PDP Descriptions / Additional Info)
-  isFeatured       Boolean       @default(false) // Home "Featured Products"
-  dealEndsAt       DateTime? // Home "Hot Deals" countdown
-  status           ProductStatus @default(ACTIVE) // added: draft/archive without deleting
-  ratingAvg        Float         @default(0) // added: denormalized from Review for card stars
-  reviewCount      Int           @default(0) // added: denormalized "4 Review"
+  description       String
+  brand             String? // PDP "Brand"
+  productType       String? // PDP Additional Info "Type" (e.g. Organic)
+  tags              String[] // PDP "Tag"
+  videoUrl          String? // PDP Descriptions tab video
+  videoPosterUrl    String? // added: poster image for the video (PDP Descriptions / Additional Info)
+  isFeatured        Boolean       @default(false) // Home "Featured Products"
+  /// Add Product "Expiration" end; also the Home "Hot Deals" countdown.
+  dealEndsAt        DateTime?
+  saleStartsAt      DateTime? // Add Product "Expiration" start
+  taxIncluded       Boolean       @default(true) // Add Product "Tax Included" (flag only)
+  /// Add Product "Unlimited" toggle off = trackInventory false: stock is a sentinel
+  /// (lib/admin/products/inventory.ts) driven by stockStatus.
+  trackInventory    Boolean       @default(true)
+  stockStatus       StockStatus   @default(IN_STOCK) // Add Product "Stock Status"
+  lowStockThreshold Int           @default(5) // added: admin "low stock" colour
+  seoTitle          String? // added: <title> override
+  seoDescription    String? // added: meta description override
+  status            ProductStatus @default(DRAFT) // admin Save to draft / Publish
+  deletedAt         DateTime? // added: soft delete (kept for past orders)
+  ratingAvg         Float         @default(0) // added: denormalized from Review for card stars
+  reviewCount       Int           @default(0) // added: denormalized "4 Review"
   /// added: denormalized default-variant price for Shop sort/price filter (Prisma can't
   /// order by a filtered relation). Set by the seed; admin product actions must keep it in sync.
-  priceCents       Int           @default(0)
-  categoryId       String
-  category         Category      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  createdAt        DateTime      @default(now()) // admin Product List "Date"
-  updatedAt        DateTime      @updatedAt
+  priceCents        Int           @default(0)
+  categoryId        String
+  category          Category      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdAt         DateTime      @default(now()) // admin Product List "Date"
+  updatedAt         DateTime      @updatedAt
 
-  variants     Variant[]
-  images       ProductImage[]
-  attributes   ProductAttribute[]
-  reviews      Review[]
-  wishlistedBy Wishlist[]
+  variants      Variant[]
+  images        ProductImage[]
+  attributes    ProductAttribute[]
+  reviews       Review[]
+  wishlistedBy  Wishlist[]
+  slugRedirects SlugRedirect[]
 
   @@index([categoryId])
   @@index([status, isFeatured])
   @@index([status, priceCents])
+  @@index([status])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Product_name_trgm_idx")
+  @@index([sku(ops: raw("gin_trgm_ops"))], type: Gin, map: "Product_sku_trgm_idx")
+}
+
+/// Old product slugs → 308 to the current one (admin slug edits).
+model SlugRedirect {
+  id        String   @id @default(cuid())
+  fromSlug  String   @unique
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
 }
 
 model Variant {
-  id             String   @id @default(cuid())
-  productId      String
-  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  sku            String   @unique // PDP "SKU"
-  name           String // cart drawer "1 kg"
-  size           String? // admin Product List "Size"
-  color          String? // PDP Additional Info "Color"
-  weightGrams    Int? // PDP Additional Info "Weight"
-  priceCents     Int // "$17.28"
-  compareAtCents Int? // struck-through "$48.00" → "64% Off"
-  stock          Int      @default(0) // "In Stock" / "Out of Stock", admin "QTY", "Available (5,413)"
-  reserved       Int      @default(0) // added: held by unpaid/unshipped orders; available = stock - reserved
-  isDefault      Boolean  @default(false) // added: variant shown on product cards
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                String   @id @default(cuid())
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku               String   @unique // PDP "SKU"
+  name              String // cart drawer "1 kg"
+  size              String? // admin Product List "Size"
+  color             String? // PDP Additional Info "Color"
+  weightGrams       Int? // PDP Additional Info "Weight"
+  priceCents        Int // "$17.28": current selling price, derived from regular/sale + window
+  compareAtCents    Int? // struck-through "$48.00" → "64% Off" (regular price while on sale)
+  regularPriceCents Int      @default(0) // Add Product "Product Price"
+  salePriceCents    Int? // regular − "Discounted Price"; applies inside the product's sale window
+  stock             Int      @default(0) // "In Stock" / "Out of Stock", admin "QTY", "Available (5,413)"
+  reserved          Int      @default(0) // added: held by unpaid/unshipped orders; available = stock - reserved
+  isDefault         Boolean  @default(false) // added: variant shown on product cards
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   cartItems  CartItem[]
   orderItems OrderItem[]
+  images     ProductImage[]
 
   @@index([productId])
 }
 
-model ProductImage {
-  id        String  @id @default(cuid())
-  productId String
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  url       String
-  alt       String
-  width     Int // added: next/image needs intrinsic size
-  height    Int // added: next/image needs intrinsic size
-  position  Int     @default(0) // added: gallery thumbnail order
+/// An uploaded file (admin Product Media). Objects live in Neon Object Storage
+/// (lib/storage); legacy /seed rows keep a site-relative key.
+model Media {
+  id           String   @id @default(cuid())
+  key          String   @unique // "products/{productId}/{uuid}.webp"
+  url          String // public URL at upload time; render with mediaUrl(key)
+  originalName String
+  mime         String
+  size         Int
+  width        Int
+  height       Int
+  alt          String   @default("")
+  blurDataURL  String?
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
 
-  @@index([productId])
+  productImages ProductImage[]
+
+  @@index([createdAt])
+  @@index([originalName])
+}
+
+/// Product gallery: product (and optionally one variant) → Media, in sortOrder (0 = main).
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  mediaId   String
+  media     Media    @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+  variantId String?
+  variant   Variant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  sortOrder Int      @default(0)
+
+  @@unique([productId, mediaId])
+  @@index([productId, sortOrder])
+  @@index([mediaId])
 }
 
 /// PDP "Additional Information" rows (Weight, Color, Type, …). Category, Stock Status
@@ -349,49 +414,49 @@ model Wishlist {
 // ─────────────────────────────── orders ───────────────────────────────
 
 model Order {
-  id                String        @id @default(cuid())
-  number            Int           @unique @default(autoincrement()) // "#4152", "#ORD0001"
-  orderNumber       String        @unique // added: "ECF-004152", also the first gateway transaction id
-  idempotencyKey    String        @unique // added: one order per checkout form submit
+  id                String               @id @default(cuid())
+  number            Int                  @unique @default(autoincrement()) // "#4152", "#ORD0001"
+  orderNumber       String               @unique // added: "ECF-004152", also the first gateway transaction id
+  idempotencyKey    String               @unique // added: one order per checkout form submit
   userId            String?
-  user              User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user              User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
   email             String // Checkout "Email"
   phone             String // Checkout "Phone" (normalized 01XXXXXXXXX)
   /// Snapshot of Checkout billing fields (see lib/validations/address.ts).
   billingAddress    Json
   /// Snapshot; equals billing unless "Ship to a different address" is checked.
   shippingAddress   Json
-  district          String        @default("") // added: shipping district (zone + COD rules)
+  district          String               @default("") // added: shipping district (zone + COD rules)
   notes             String? // Checkout "Order Notes"
-  status            OrderStatus   @default(PENDING_CONFIRMATION)
-  paymentStatus     PaymentStatus @default(UNPAID)
+  status            OrderStatus          @default(PENDING_CONFIRMATION)
+  paymentStatus     PaymentStatus        @default(UNPAID)
   paymentMethod     PaymentMethod
   subtotalCents     Int
-  discountCents     Int           @default(0) // Order Details "Discount"
-  shippingCents     Int           @default(0) // "Shipping: Free"
-  codFeeCents       Int           @default(0) // added: Cash on Delivery fee
+  discountCents     Int                  @default(0) // Order Details "Discount"
+  shippingCents     Int                  @default(0) // "Shipping: Free"
+  codFeeCents       Int                  @default(0) // added: Cash on Delivery fee
   totalCents        Int // charged amount (BDT poisha)
-  currency          String        @default("BDT") // added: charge currency
-  displayCurrency   String        @default("BDT") // added: currency the customer saw
-  fxRate            Decimal       @default(1) @db.Decimal(10, 4) // added: USD→BDT at order time
-  displayTotalCents Int           @default(0) // added: total in displayCurrency cents
+  currency          String               @default("BDT") // added: charge currency
+  displayCurrency   String               @default("BDT") // added: currency the customer saw
+  fxRate            Decimal              @default(1) @db.Decimal(10, 4) // added: USD→BDT at order time
+  displayTotalCents Int                  @default(0) // added: total in displayCurrency cents
   shippingZoneName  String? // added: snapshot ("Inside Dhaka")
   deliveryEstimate  String? // added: snapshot ("1–2 days")
-  stockState        StockState    @default(COMMITTED) // added: reservation lifecycle
-  codFlagged        Boolean       @default(false) // added: phone had cancelled COD orders
+  stockState        StockState           @default(COMMITTED) // added: reservation lifecycle
+  codFlagged        Boolean              @default(false) // added: phone had cancelled COD orders
   codFlagReason     String?
   placedIp          String?
   cartId            String? // added: cart to clear once paid (guests have no userId)
   expiresAt         DateTime? // added: PENDING_PAYMENT deadline
   paidAt            DateTime?
   couponId          String?
-  coupon            Coupon?       @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  coupon            Coupon?              @relation(fields: [couponId], references: [id], onDelete: SetNull)
   couponCode        String? // added: snapshot in case the coupon is deleted
   items             OrderItem[]
   payments          Payment[]
   history           OrderStatusHistory[]
-  createdAt         DateTime      @default(now()) // Order History "Date"
-  updatedAt         DateTime      @updatedAt
+  createdAt         DateTime             @default(now()) // Order History "Date"
+  updatedAt         DateTime             @updatedAt
 
   @@index([userId, createdAt])
   @@index([status, expiresAt])
@@ -497,6 +562,7 @@ model Settings {
   codMaxPerPhonePerDay Int      @default(3)
   bkashEnabled         Boolean  @default(true)
   sslcommerzEnabled    Boolean  @default(true)
+  maxUploadMb          Int      @default(5) // admin Product Media upload limit
   updatedAt            DateTime @updatedAt
 }
 

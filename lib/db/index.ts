@@ -11,9 +11,18 @@ function createClient() {
   });
 }
 
-// Reuse one client across hot reloads in dev.
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+// Reuse one client across hot reloads in dev. The cache is keyed on the
+// generated PrismaClient class: after `prisma generate` (schema change, migrate,
+// pnpm install) the module is new, so a client built from the old schema is
+// dropped instead of failing every query on new fields ("Unknown argument …").
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient; prismaClass?: typeof PrismaClient };
 
-export const prisma = globalForPrisma.prisma ?? createClient();
+const cached = globalForPrisma.prismaClass === PrismaClient ? globalForPrisma.prisma : undefined;
+if (!cached && globalForPrisma.prisma) void globalForPrisma.prisma.$disconnect().catch(() => {});
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+export const prisma = cached ?? createClient();
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
+  globalForPrisma.prismaClass = PrismaClient;
+}

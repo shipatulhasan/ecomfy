@@ -105,7 +105,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 /**
- * Format an instant in Dhaka time. Tokens: yyyy, MMM, dd, d, EEEE, EEE, h, mm, a.
+ * Format an instant in Dhaka time. Tokens: yyyy, yy, MMM, MM, dd, d, EEEE, EEE, HH, h, mm, a (am/pm), A (AM/PM).
  * "01 Oct | 11:29 am" = formatDhaka(date, "dd MMM | h:mm a").
  */
 export function formatDhaka(instant: Date | string | number, pattern: string): string {
@@ -113,16 +113,20 @@ export function formatDhaka(instant: Date | string | number, pattern: string): s
   const h24 = d.getUTCHours();
   const tokens: Record<string, string> = {
     yyyy: String(d.getUTCFullYear()),
+    yy: String(d.getUTCFullYear() % 100).padStart(2, "0"),
     MMM: MONTHS[d.getUTCMonth()]!,
+    MM: String(d.getUTCMonth() + 1).padStart(2, "0"),
     dd: String(d.getUTCDate()).padStart(2, "0"),
     d: String(d.getUTCDate()),
     EEEE: WEEKDAYS[d.getUTCDay()]!,
     EEE: WEEKDAYS[d.getUTCDay()]!.slice(0, 3),
+    HH: String(h24).padStart(2, "0"),
     h: String(h24 % 12 || 12),
     mm: String(d.getUTCMinutes()).padStart(2, "0"),
     a: h24 < 12 ? "am" : "pm",
+    A: h24 < 12 ? "AM" : "PM",
   };
-  return pattern.replace(/yyyy|MMM|EEEE|EEE|dd|d|h|mm|a/g, (t) => tokens[t] ?? t);
+  return pattern.replace(/yyyy|yy|MMM|MM|EEEE|EEE|dd|d|HH|h|mm|a|A/g, (t) => tokens[t] ?? t);
 }
 
 /** Query string for a range (keeps other params), e.g. for the range menu links. */

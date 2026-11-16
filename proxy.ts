@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { isStaffRole } from "@/lib/auth/permissions";
+import { prisma } from "@/lib/db";
 import { safeAdminCallbackUrl, safeCallbackUrl } from "@/lib/callback-url";
 
 /**
@@ -12,6 +13,10 @@ import { safeAdminCallbackUrl, safeCallbackUrl } from "@/lib/callback-url";
  *   request with nothing to float over: 307 to the product page. The page at
  *   app/(shop)/quick/[slug] redirects too, but under Cache Components that one
  *   streams (200 + meta refresh), so this gives a real HTTP redirect.
+ *
+ * - /product/[slug]: a renamed product's old slug (SlugRedirect) gets a real 308 to
+ *   the current URL on page loads. The page redirects too, but it streams (200 +
+ *   client redirect), which crawlers don't treat as a move. One indexed lookup.
  *
  * - /account/** needs a session: signed-out visitors go to /sign-in?callbackUrl=….
  *
@@ -41,6 +46,8 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL(`/product/${slug}`, request.url), 307);
   }
 
+  if (pathname.startsWith("/product/")) return productRedirect(request);
+
   if (pathname === "/admin" || pathname.startsWith("/admin/")) return adminGate(request);
 
   const isAuthPage = pathname === "/sign-in" || pathname === "/sign-up";
@@ -63,6 +70,20 @@ export async function proxy(request: NextRequest) {
   }
 
   return NextResponse.next();
+}
+
+async function productRedirect(request: NextRequest) {
+  const dest = request.headers.get("sec-fetch-dest");
+  if (dest && dest !== "document") return NextResponse.next(); // router fetches: the page handles it
+  const slug = decodeURIComponent(request.nextUrl.pathname.slice("/product/".length).split("/")[0] ?? "");
+  if (!/^[a-z0-9-]{1,120}$/.test(slug)) return NextResponse.next();
+  const hit = await prisma.slugRedirect
+    .findUnique({ where: { fromSlug: slug }, select: { product: { select: { slug: true, status: true } } } })
+    .catch(() => null);
+  if (!hit || hit.product.status !== "PUBLISHED" || hit.product.slug === slug) return NextResponse.next();
+  const url = new URL(`/product/${hit.product.slug}`, request.url);
+  url.search = request.nextUrl.search;
+  return NextResponse.redirect(url, 308);
 }
 
 const ADMIN_PUBLIC = new Set(["/admin/login", "/admin/register", "/admin/forgot-password", "/admin/reset-password"]);
@@ -96,6 +117,7 @@ export const config = {
     "/admin/:path*",
     "/account/:path*",
     "/quick/:path*",
+    "/product/:path*",
     "/sign-in",
     "/sign-up",
   ],

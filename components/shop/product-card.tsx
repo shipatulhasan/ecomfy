@@ -108,6 +108,8 @@ export function ProductCard({
               sizes={sizes ?? (spotlight ? SPOTLIGHT_SIZES : framed ? LISTING_GRID_SIZES : PRODUCT_GRID_SIZES)}
               loading={imageLoading}
               fetchPriority={eager ? "high" : undefined}
+              placeholder={product.image.blurDataURL ? "blur" : "empty"}
+              blurDataURL={product.image.blurDataURL ?? undefined}
               className={cn("object-contain", framed && "rounded-t-lg")}
             />
           ) : (

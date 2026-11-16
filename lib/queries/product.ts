@@ -6,12 +6,13 @@ import { brandLogo } from "@/lib/config/product";
 import type { Asset } from "@/lib/assets";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { productHtmlToText, sanitizeProductHtml } from "@/lib/rich-text";
+import { productImages, toImage, type ImageData } from "@/lib/catalog/images";
 
 /**
  * One product with everything the Quick View and the PDP render. Plain
  * serializable data (it crosses into the client gallery / purchase leaves).
  */
-export type ProductImageData = { url: string; alt: string; width: number; height: number };
+export type ProductImageData = ImageData;
 
 export type ProductVariantData = {
   id: string;
@@ -50,10 +51,7 @@ const detailSelect = {
   ratingAvg: true,
   reviewCount: true,
   category: { select: { name: true, slug: true } },
-  images: {
-    orderBy: { position: "asc" },
-    select: { url: true, alt: true, width: true, height: true },
-  },
+  images: productImages(),
   variants: {
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
     select: {
@@ -71,7 +69,7 @@ const detailSelect = {
 type DetailRow = Prisma.ProductGetPayload<{ select: typeof detailSelect }>;
 
 function toDetail(row: DetailRow | null): ProductDetail | null {
-  if (!row || row.status !== "ACTIVE" || row.variants.length === 0) return null;
+  if (!row || row.status !== "PUBLISHED" || row.variants.length === 0) return null;
   return {
     id: row.id,
     slug: row.slug,
@@ -83,7 +81,7 @@ function toDetail(row: DetailRow | null): ProductDetail | null {
     category: row.category,
     ratingAvg: row.ratingAvg,
     reviewCount: row.reviewCount,
-    images: row.images,
+    images: row.images.map((i, n) => toImage(i, n === 0 ? row.name : `${row.name}, view ${n + 1}`)),
     variants: row.variants,
   };
 }
@@ -116,6 +114,8 @@ export type ProductPageData = ProductDetail & {
   attributes: ProductAttributeData[];
   /** Units across all variants ("Available (5,413)"). */
   totalStock: number;
+  seoTitle: string | null;
+  seoDescription: string | null;
 };
 
 /** PDP read (/product/[slug]). Same tags as the Quick View read. */
@@ -132,6 +132,8 @@ export async function getProductPage(slug: string): Promise<ProductPageData | nu
       productType: true,
       videoUrl: true,
       videoPosterUrl: true,
+      seoTitle: true,
+      seoDescription: true,
       attributes: { orderBy: { sortOrder: "asc" }, select: { name: true, value: true } },
     },
   });
@@ -147,5 +149,23 @@ export async function getProductPage(slug: string): Promise<ProductPageData | nu
     videoPosterUrl: row.videoPosterUrl,
     attributes: row.attributes,
     totalStock: row.variants.reduce((n, v) => n + v.stock, 0),
+    seoTitle: row.seoTitle,
+    seoDescription: row.seoDescription,
   };
+}
+
+/**
+ * Old slug → current slug of a live product (admin slug edits write a
+ * SlugRedirect). Tagged `products`, so a rename or un-publish refreshes it.
+ */
+export async function getSlugRedirect(slug: string): Promise<string | null> {
+  "use cache";
+  cacheTag(CacheTags.products, CacheTags.product(slug));
+  cacheLife("hours");
+
+  const row = await prisma.slugRedirect.findUnique({
+    where: { fromSlug: slug },
+    select: { product: { select: { slug: true, status: true } } },
+  });
+  return row && row.product.status === "PUBLISHED" ? row.product.slug : null;
 }

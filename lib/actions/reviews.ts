@@ -25,7 +25,7 @@ export async function submitReview(input: unknown): Promise<ActionResult<ReviewD
       where: { id: productId },
       select: { status: true, slug: true, category: { select: { slug: true } } },
     });
-    if (!product || product.status !== "ACTIVE") throw new ActionError("This product is no longer available.");
+    if (!product || product.status !== "PUBLISHED") throw new ActionError("This product is no longer available.");
 
     let review;
     try {

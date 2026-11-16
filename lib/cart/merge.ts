@@ -16,7 +16,7 @@ export async function mergeGuestIntoUser(userId: string, guestToken: string | nu
   if (guestToken) await mergeCart(userId, guestToken);
   if (guestWishlist.length > 0) {
     const live = await prisma.product.findMany({
-      where: { id: { in: guestWishlist }, status: "ACTIVE" },
+      where: { id: { in: guestWishlist }, status: "PUBLISHED" },
       select: { id: true },
     });
     if (live.length > 0) {

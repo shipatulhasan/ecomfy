@@ -3,6 +3,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { prisma } from "@/lib/db";
 import { CacheTags } from "@/lib/cache-tags";
 import type { Prisma } from "@/lib/generated/prisma/client";
+import { firstImage, productImages, type ImageData } from "@/lib/catalog/images";
 
 /**
  * Catalog reads are cached with "use cache" and tagged so admin mutations can
@@ -26,7 +27,7 @@ export type ProductCardData = {
   id: string;
   slug: string;
   name: string;
-  image: { url: string; alt: string; width: number; height: number } | null;
+  image: ImageData | null;
   variantId: string;
   /** Default variant's name ("1 kg"): the mini cart row added from a card. */
   variantName: string;
@@ -47,11 +48,7 @@ export const productCardSelect = {
   ratingAvg: true,
   reviewCount: true,
   dealEndsAt: true,
-  images: {
-    orderBy: { position: "asc" },
-    take: 1,
-    select: { url: true, alt: true, width: true, height: true },
-  },
+  images: productImages(1),
   variants: {
     // Default variant first; it is the one a card shows and adds to the cart.
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
@@ -69,7 +66,7 @@ function toProductCard(row: ProductCardRow): ProductCardData | null {
     id: row.id,
     slug: row.slug,
     name: row.name,
-    image: row.images[0] ?? null,
+    image: firstImage(row.images, row.name),
     variantId: variant.id,
     variantName: variant.name,
     stock: variant.stock,
@@ -92,7 +89,7 @@ export async function getPopularProducts(limit = 10) {
   cacheLife("hours");
 
   const rows = await prisma.product.findMany({
-    where: { status: "ACTIVE" },
+    where: { status: "PUBLISHED" },
     orderBy: [{ reviewCount: "desc" }, { ratingAvg: "desc" }, { createdAt: "asc" }],
     take: limit,
     select: productCardSelect,
@@ -111,7 +108,7 @@ export async function getHotDeals(limit = 12) {
 
   const rows = await prisma.product.findMany({
     where: {
-      status: "ACTIVE",
+      status: "PUBLISHED",
       OR: [{ dealEndsAt: null }, { dealEndsAt: { gt: new Date() } }],
     },
     orderBy: [{ dealEndsAt: { sort: "asc", nulls: "last" } }, { reviewCount: "desc" }],
@@ -136,7 +133,7 @@ export async function getFeaturedProducts(limit = 5) {
   cacheLife("hours");
 
   const rows = await prisma.product.findMany({
-    where: { status: "ACTIVE", isFeatured: true },
+    where: { status: "PUBLISHED", isFeatured: true },
     orderBy: { createdAt: "asc" },
     take: limit,
     select: productCardSelect,
@@ -155,7 +152,7 @@ export async function getRelatedProducts(productId: string, categorySlug: string
 
   const order = [{ reviewCount: "desc" }, { ratingAvg: "desc" }, { createdAt: "asc" }] satisfies Prisma.ProductOrderByWithRelationInput[];
   const same = await prisma.product.findMany({
-    where: { status: "ACTIVE", id: { not: productId }, category: { slug: categorySlug } },
+    where: { status: "PUBLISHED", id: { not: productId }, category: { slug: categorySlug } },
     orderBy: order,
     take: limit,
     select: productCardSelect,
@@ -163,7 +160,7 @@ export async function getRelatedProducts(productId: string, categorySlug: string
   const others =
     same.length < limit
       ? await prisma.product.findMany({
-          where: { status: "ACTIVE", id: { notIn: [productId, ...same.map((p) => p.id)] } },
+          where: { status: "PUBLISHED", id: { notIn: [productId, ...same.map((p) => p.id)] } },
           orderBy: order,
           take: limit - same.length,
           select: productCardSelect,

@@ -25,7 +25,7 @@ const ORDER_BY: Record<ShopSort, Prisma.ProductOrderByWithRelationInput[]> = {
 };
 
 function shopWhere(f: ShopFilters): Prisma.ProductWhereInput {
-  const where: Prisma.ProductWhereInput = { status: "ACTIVE" };
+  const where: Prisma.ProductWhereInput = { status: "PUBLISHED" };
   if (f.category) where.category = { slug: f.category };
   if (f.q) where.name = { contains: f.q, mode: "insensitive" };
   if (f.min != null || f.max != null) {
@@ -102,7 +102,7 @@ export async function getShopFilterOptions(): Promise<ShopFilterOptions> {
   cacheTag(CacheTags.products, CacheTags.categories);
   cacheLife("hours");
 
-  const active = { status: "ACTIVE" } as const;
+  const active = { status: "PUBLISHED" } as const;
   const [categories, perCategory, price, tags, brands] = await Promise.all([
     prisma.category.findMany({ orderBy: { sortOrder: "asc" }, select: { id: true, slug: true, name: true } }),
     prisma.product.groupBy({ by: ["categoryId"], where: active, _count: { _all: true } }),
@@ -110,7 +110,7 @@ export async function getShopFilterOptions(): Promise<ShopFilterOptions> {
     prisma.$queryRaw<{ tag: string; count: number }[]>`
       SELECT t AS tag, COUNT(*)::int AS count
       FROM "Product", unnest("tags") AS t
-      WHERE "status" = 'ACTIVE'
+      WHERE "status" = 'PUBLISHED'
       GROUP BY t
       ORDER BY count DESC, t ASC
       LIMIT ${POPULAR_TAG_LIMIT}`,
@@ -150,7 +150,7 @@ export async function getSaleProducts(limit = 3) {
   cacheLife("hours");
 
   const rows = await prisma.product.findMany({
-    where: { status: "ACTIVE", variants: { some: { isDefault: true, compareAtCents: { not: null } } } },
+    where: { status: "PUBLISHED", variants: { some: { isDefault: true, compareAtCents: { not: null } } } },
     orderBy: [{ reviewCount: "desc" }, { ratingAvg: "desc" }, { id: "asc" }],
     take: limit * 4,
     select: productCardSelect,
