@@ -13,7 +13,7 @@ export type AccountProfile = {
   email: string;
   phone: string | null;
   image: string | null;
-  role: "CUSTOMER" | "ADMIN";
+  role: "CUSTOMER" | "STAFF" | "ADMIN";
   emailVerified: boolean;
 };
 

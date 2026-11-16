@@ -4,7 +4,16 @@
  * backslash-tricked (`/\x`) or pointing back at an auth page falls back.
  * Safe to import from client and server code.
  */
-export const AUTH_PATHS = ["/sign-in", "/sign-up", "/forgot-password", "/reset-password"] as const;
+export const AUTH_PATHS = [
+  "/sign-in",
+  "/sign-up",
+  "/forgot-password",
+  "/reset-password",
+  "/admin/login",
+  "/admin/register",
+  "/admin/forgot-password",
+  "/admin/reset-password",
+] as const;
 
 export function safeCallbackUrl(raw: unknown, fallback = "/account"): string {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > 512) return fallback;
@@ -25,4 +34,10 @@ export function safeCallbackUrl(raw: unknown, fallback = "/account"): string {
 export function signInHref(callbackUrl?: string | null, base: string = "/sign-in"): string {
   const cb = callbackUrl ? safeCallbackUrl(callbackUrl, "") : "";
   return cb && cb !== "/account" ? `${base}?callbackUrl=${encodeURIComponent(cb)}` : base;
+}
+
+/** Admin sign-in: same rules, and only back into the admin panel (else /admin). */
+export function safeAdminCallbackUrl(raw: unknown): string {
+  const url = safeCallbackUrl(raw, "/admin");
+  return url === "/admin" || url.startsWith("/admin/") || url.startsWith("/admin?") ? url : "/admin";
 }

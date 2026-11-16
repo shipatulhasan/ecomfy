@@ -44,6 +44,9 @@
  * The bar is detected with :has(), so routes that don't render it get 0 automatically.
  */
 :root {
+  /* The storefront font, resolved here at the root so it survives .theme-admin's
+     --font-sans remap: the logo wordmark is Poppins in both themes (font-logo). */
+  --font-brand-family: var(--font-sans);
   --app-header-h: calc(4rem + env(safe-area-inset-top));
   --app-bottom-nav: 0px;
   --app-bottom-safe: env(safe-area-inset-bottom);
@@ -360,6 +363,7 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
   --font-heading: var(--font-sans);
+  --font-logo: var(--font-brand-family);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -461,7 +465,8 @@ html:not([data-currency="USD"]) [data-cur="USD"] {
     overflow-x: clip;
   }
   /* Admin scope swaps colors and font (see .theme-admin in theme.css). */
-  .theme-admin {
+  .theme-admin,
+  body:has(.theme-admin) {
     @apply bg-background font-sans text-foreground;
   }
 

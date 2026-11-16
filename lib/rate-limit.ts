@@ -36,7 +36,7 @@ export async function clientIp(): Promise<string> {
   return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
 }
 
-export type AuthAction = "sign-in" | "sign-up" | "reset" | "verify";
+export type AuthAction = "sign-in" | "sign-up" | "reset" | "verify" | "admin-sign-in" | "admin-reset" | "admin-invite" | "admin-search";
 
 /** Per IP + email, and per IP overall (stops one IP spraying many emails). */
 const limits: Record<AuthAction, { perEmail: Rule; perIp: Rule }> = {
@@ -44,6 +44,13 @@ const limits: Record<AuthAction, { perEmail: Rule; perIp: Rule }> = {
   "sign-up": { perEmail: { window: 60 * 60, max: 3 }, perIp: { window: 60 * 60, max: 10 } },
   reset: { perEmail: { window: 60 * 60, max: 3 }, perIp: { window: 60 * 60, max: 10 } },
   verify: { perEmail: { window: 60 * 60, max: 3 }, perIp: { window: 60 * 60, max: 10 } },
+  // Admin is stricter than the storefront (3 tries per account, 10 per IP, per 15 min).
+  "admin-sign-in": { perEmail: { window: 15 * 60, max: 3 }, perIp: { window: 15 * 60, max: 10 } },
+  "admin-reset": { perEmail: { window: 60 * 60, max: 2 }, perIp: { window: 60 * 60, max: 5 } },
+  // Invite acceptance: keyed by token hash prefix instead of email.
+  "admin-invite": { perEmail: { window: 15 * 60, max: 5 }, perIp: { window: 15 * 60, max: 10 } },
+  // Command palette search, keyed by user id.
+  "admin-search": { perEmail: { window: 60, max: 60 }, perIp: { window: 60, max: 120 } },
 };
 
 /**

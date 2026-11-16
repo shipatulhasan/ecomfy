@@ -17,6 +17,7 @@ import type { OrderRow } from "@/lib/queries/orders";
 import { NoOrders, OrderCards, OrdersTable } from "./orders-list";
 import { SignOutButton } from "./sign-out-button";
 import { UserAvatar } from "./user-avatar";
+import { ROLE_LABELS } from "@/lib/auth/permissions";
 
 /**
  * User_Dashboard.png, laptop+: Profile card (536×278) | Billing Address card
@@ -31,7 +32,7 @@ export function ProfileCard({ profile }: { profile: AccountProfile }) {
     <section aria-label="Profile" className={`${card} flex flex-col items-center px-8 pt-8 pb-8 text-center`}>
       <UserAvatar name={profile.name} image={profile.image} sizes={`${laptopSizes(120)}, 7.5rem`} className="size-30 text-h2" />
       <h2 className="mt-2 text-h4 font-medium text-foreground">{profile.name}</h2>
-      <p className="text-copy text-muted-foreground">{profile.role === "ADMIN" ? "Admin" : "Customer"}</p>
+      <p className="text-copy text-muted-foreground">{ROLE_LABELS[profile.role]}</p>
       <Link href="/account/settings" className="mt-4 text-lead font-medium text-primary hover:text-brand-dark hover:underline">
         Edit Profile
       </Link>

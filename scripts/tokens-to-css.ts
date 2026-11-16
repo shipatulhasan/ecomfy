@@ -5,7 +5,8 @@
  * run `pnpm tokens`.
  *
  * - `:root`          → storefront tokens (default theme)
- * - `.theme-admin`   → admin overrides (applied by app/admin/layout.tsx)
+ * - `.theme-admin`   → admin overrides (applied by app/admin/layout.tsx; also on
+ *                     `body:has(.theme-admin)` so portaled overlays match)
  * - per-layer values (gutter, section gap, type scale) step up mobile-first with
  *   `@variant tablet|laptop|desktop` (breakpoints declared in app/globals.css).
  * Colors are converted from hex to oklch to match shadcn's format.
@@ -161,6 +162,9 @@ const extraColors = [
   "primary-hover",
   "destructive-foreground",
   "overlay",
+  "logo-leaf",
+  "auth-hero-from",
+  "auth-hero-to",
 ];
 
 const sf = tokens.storefront;
@@ -173,7 +177,7 @@ for (const key of ["primary-hover"]) {
   if (!sf.color[key]) sf.color[key] = sf.color["brand-dark"]!;
 }
 for (const key of Object.keys(ad.color)) {
-  if (key.startsWith("sidebar") || key.startsWith("chart")) {
+  if (key.startsWith("sidebar") || key.startsWith("chart") || key.startsWith("auth-hero")) {
     sf.color[key] ??= ad.color[key]!;
   }
 }
@@ -198,7 +202,10 @@ ${shadows.map(([k, v]) => `  --elevation-${k}: ${v};`).join("\n")}
 ${layeredBlock(layeredVars(rs.storefront, rs.gutter))}
 }
 
-.theme-admin {
+/* body:has(): portals (dialogs, popovers, sheets, toasts) mount on <body>,
+   outside the admin wrapper, and must get the admin tokens too. */
+.theme-admin,
+body:has(.theme-admin) {
 ${colorVars(ad).join("\n")}
   --radius: ${px(ad.radius.base)};
   --font-sans: var(--font-admin);

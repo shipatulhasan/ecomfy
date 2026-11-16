@@ -6,6 +6,7 @@ import { addVariantToCart } from "@/lib/cart/mutations";
 import { resolveCartOwner } from "@/lib/cart/owner";
 import type { CartView } from "@/lib/cart/pricing";
 import { prisma } from "@/lib/db";
+import { invalidateOrderAggregates } from "@/lib/orders/cache";
 import { recordStatus } from "@/lib/orders/history";
 import { CANCELLABLE_STATUSES } from "@/lib/orders/status";
 import { releaseStock } from "@/lib/payments/state";
@@ -62,6 +63,7 @@ export async function cancelOrder(input: unknown): Promise<ActionResult<{ number
       await recordStatus(tx, order.id, "CANCELLED", "Cancelled by customer", "customer");
     });
 
+    invalidateOrderAggregates();
     refresh();
     return { number: orderNumber };
   });

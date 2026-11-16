@@ -74,3 +74,15 @@ export function fromTaka(amount: string | number): number {
   const n = typeof amount === "number" ? amount : Number.parseFloat(amount);
   return Number.isFinite(n) ? Math.round(n * 100) : Number.NaN;
 }
+
+const compactBdt = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+
+/** Admin KPI values: "৳350K", "৳1.2M" (BDT, compact, whole taka). */
+export function formatPriceCompact(poisha: number): string {
+  return `৳${compactBdt.format(Math.round(poisha / 100))}`;
+}
+
+/** Admin counts: "10.7K", "509". */
+export function formatCountCompact(n: number): string {
+  return compactBdt.format(n);
+}

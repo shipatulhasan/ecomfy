@@ -21,10 +21,12 @@ Never call Figma MCP tools in this project. All design data lives in /designs.
   - All mutations are server actions in `lib/actions/`.
   - Validate input with a zod schema from `lib/validations/` using `runAction()` (`lib/actions/safe-action.ts`).
   - Return a typed `ActionResult<T>` (`lib/actions/result.ts`).
-  - Every action re-checks auth itself (`requireUser()` / `requireAdmin()`). Never rely on the proxy or a layout for authorization.
+  - Every action re-checks auth itself (`requireUser()`, or for the admin `runAdminAction(permission, …)`). Never rely on the proxy or a layout for authorization.
+  - **Admin actions** use `runAdminAction(permission, schema, input, fn)` (`lib/actions/safe-action.ts`): it authorizes first (403 → `FORBIDDEN`), then validates. Every admin mutation also calls `logAudit()` (`lib/audit.ts`), passing the transaction client when there is one.
 - **Catalog reads:**
   - Catalog reads live in `lib/queries/` and use `"use cache"` + `cacheTag(...)` + `cacheLife(...)`, with tags from `lib/cache-tags.ts`.
   - Admin mutations invalidate with `updateTag(tag)` inside server actions (read-your-own-writes). Use `revalidateTag(tag, "max")` from route handlers.
+  - Order/payment state changes expire the admin's `orders` aggregates via `invalidateOrderAggregates()` (`lib/orders/cache.ts`). Admin aggregates (`lib/queries/admin/`) check the permission, then call a short-lived `"use cache"` function keyed by ISO date boundaries (Asia/Dhaka, `lib/admin/date-range.ts`).
   - Never read `cookies()`/`headers()`/the session inside `"use cache"`. Resolve the user first and pass `user.id` in.
 - **Suspense:** wrap slow or request-time sections (session, cart, per-user data) in `<Suspense>` with a skeleton (`components/ui/skeleton`). With Cache Components, request-time reads outside `<Suspense>` are a build error.
 - **Images:**
@@ -39,7 +41,9 @@ Never call Figma MCP tools in this project. All design data lives in /designs.
 - **Money** is integer cents in the DB and in code. Display it with `formatPrice()` (`lib/money.ts`).
 - **Auth:**
   - Better Auth lives in `lib/auth.ts` (server) and `lib/auth-client.ts` (client). Session helpers are in `lib/auth-guards.ts`.
-  - `/admin` is guarded by `proxy.ts` and by `requireAdmin()` in `app/admin/layout.tsx`.
+  - Roles: CUSTOMER, STAFF, ADMIN. Admin permissions are a static map in `lib/auth/permissions.ts` (`can(user, perm)`); the admin menu (`lib/admin/nav.ts`), pages (render `<Forbidden />`), admin queries (`requirePermission()`) and actions all check it.
+  - `/admin/**` needs STAFF/ADMIN (`proxy.ts` → `/admin/login?callbackUrl=…`, then `requireStaff()` in `AdminShell`). `/admin/login`, `/admin/register`, `/admin/forgot-password`, `/admin/reset-password` are public; admin login rejects customers with the generic message.
+  - No public admin sign-up: invites only (`AdminInvite`, 48h single-use link, `lib/admin/invites.ts`). The first admin comes from `pnpm admin:create`.
 - **Prisma:** the client is generated to `lib/generated/prisma` (gitignored). Import it from `@/lib/db` in app code.
 - **Next.js 16 APIs differ from older versions.** Check `node_modules/next/dist/docs/` before using an API: the middleware file is `proxy.ts`, `revalidateTag` takes 2 arguments, and `forbidden()` is still experimental.
 
@@ -142,7 +146,7 @@ Below 1024px the storefront behaves like a native app. Laptop and desktop follow
 - `app/(shop)`: storefront.
 - `app/(shop)/(auth)`: sign-in / sign-up / forgot + reset password (inside the storefront chrome).
 - `app/(shop)/(account)/account`: customer account, which requires a session.
-- `app/admin`: admin panel.
+- `app/admin`: admin panel. `(auth)`: login / register / password reset. `(panel)`: pages inside the shell; unbuilt menu destinations fall through to the `[...slug]` Coming soon page.
 - `components/ui`: shadcn primitives. Vendored: add with `pnpm dlx shadcn@latest add <name>` and don't hand-edit.
 - `components/shop`, `components/admin`, `components/shared`: custom components (see `designs/DESIGN.md`).
 - `lib/db`, `lib/actions`, `lib/validations`, `lib/queries`.
@@ -150,4 +154,4 @@ Below 1024px the storefront behaves like a native app. Laptop and desktop follow
 
 ## Commands
 
-`pnpm dev` · `pnpm build` · `pnpm lint` (ESLint + design rules) · `pnpm lint:design` · `pnpm typecheck` · `pnpm tokens` · `pnpm assets:crop` · `pnpm icons` · `pnpm db:migrate` · `pnpm db:seed` · `pnpm db:studio`
+`pnpm dev` · `pnpm build` · `pnpm lint` (ESLint + design rules) · `pnpm lint:design` · `pnpm typecheck` · `pnpm tokens` · `pnpm assets:crop` · `pnpm icons` · `pnpm db:migrate` · `pnpm db:seed` · `pnpm db:studio` · `pnpm admin:create` (first admin only) · `pnpm admin:invite <email> <STAFF|ADMIN>`

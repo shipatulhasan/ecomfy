@@ -43,6 +43,7 @@
   --footer-foreground: oklch(1 0 0); /* #FFFFFF */
   --footer-muted: oklch(0.5999 0 0); /* #808080 */
   --overlay: oklch(0 0 0 / 0.702); /* #000000B3 */
+  --logo-leaf: oklch(0.6617 0.2239 142.669); /* #00B207 */
   --primary-hover: oklch(0.497 0.1257 144.077); /* #2C742F */
   --sidebar: oklch(0.9851 0 0); /* #FAFAFA */
   --sidebar-foreground: oklch(0.4461 0.0263 256.802); /* #4B5563 */
@@ -57,6 +58,8 @@
   --chart-3: oklch(0.8367 0.1506 144.778); /* #87E38A */
   --chart-4: oklch(0.833 0.1642 83.424); /* #FBBD23 */
   --chart-5: oklch(0.6358 0.2088 25.413); /* #EF4343 */
+  --auth-hero-from: oklch(0.5649 0.1782 144.903); /* #008F24 */
+  --auth-hero-to: oklch(0.3091 0.103 142.787); /* #013C02 */
   --radius: 0.5rem;
   --elevation-card-hover: 0 0 12px 0 rgba(32, 181, 38, 0.32);
   --elevation-dropdown: 0 8px 40px 0 rgba(0, 38, 3, 0.08);
@@ -109,7 +112,10 @@
   }
 }
 
-.theme-admin {
+/* body:has(): portals (dialogs, popovers, sheets, toasts) mount on <body>,
+   outside the admin wrapper, and must get the admin tokens too. */
+.theme-admin,
+body:has(.theme-admin) {
   --background: oklch(0.9716 0.0066 286.276); /* #F5F5FA */
   --foreground: oklch(0.2932 0.0487 203.463); /* #023337 */
   --card: oklch(1 0 0); /* #FFFFFF */
@@ -150,12 +156,14 @@
   --chart-3: oklch(0.8367 0.1506 144.778); /* #87E38A */
   --chart-4: oklch(0.833 0.1642 83.424); /* #FBBD23 */
   --chart-5: oklch(0.6358 0.2088 25.413); /* #EF4343 */
+  --auth-hero-from: oklch(0.5649 0.1782 144.903); /* #008F24 */
+  --auth-hero-to: oklch(0.3091 0.103 142.787); /* #013C02 */
   --radius: 0.5rem;
   --font-sans: var(--font-admin);
 
   --gutter: 1.5rem;
   --section-gap: 1rem;
-  --fs-display: 1.375rem;
+  --fs-display: 1.5rem;
   --lh-display: 1.2;
   --fw-display: 700;
   --fs-h1: 1.125rem;
@@ -180,7 +188,7 @@
   --lh-caption: 1.5;
   --fw-caption: 400;
   @variant tablet {
-    --fs-display: 1.5rem;
+    --fs-display: 1.625rem;
     --fs-h2: 1.125rem;
     --fs-h3: 1rem;
     --fs-h4: 0.9375rem;
@@ -188,7 +196,7 @@
   @variant laptop {
     --gutter: 2rem;
     --section-gap: 1.25rem;
-    --fs-display: 1.75rem;
+    --fs-display: 2rem;
     --fs-h1: 1.25rem;
   }
 }
@@ -217,6 +225,9 @@
   --color-primary-hover: var(--primary-hover);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-overlay: var(--overlay);
+  --color-logo-leaf: var(--logo-leaf);
+  --color-auth-hero-from: var(--auth-hero-from);
+  --color-auth-hero-to: var(--auth-hero-to);
   --shadow-card-hover: var(--elevation-card-hover);
   --shadow-dropdown: var(--elevation-dropdown);
   --shadow-modal: var(--elevation-modal);

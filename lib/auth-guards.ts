@@ -3,6 +3,8 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { auth, type SessionUser } from "@/lib/auth";
+import { can, isStaffRole, type Permission } from "@/lib/auth/permissions";
+import { ActionError, FORBIDDEN } from "@/lib/actions/result";
 
 /**
  * Data Access Layer for the session. Reads request headers, so callers must
@@ -29,9 +31,30 @@ export async function requireUser(redirectTo = "/sign-in"): Promise<SessionUser>
   return user;
 }
 
-export async function requireAdmin(): Promise<SessionUser> {
-  const user = await requireUser("/sign-in?callbackUrl=%2Fadmin");
-  // Signed-in non-admins go home (forbidden() is still experimental in Next 16.4).
-  if (user.role !== "ADMIN") redirect("/");
+/**
+ * Admin panel pages (app/admin/(panel)/layout.tsx). No session, or a CUSTOMER
+ * session → the admin login, back to `callbackUrl` afterwards.
+ */
+export async function requireStaff(callbackUrl = "/admin"): Promise<SessionUser> {
+  const user = await getCurrentUser();
+  if (!user || !isStaffRole(user.role)) {
+    redirect(`/admin/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
+  }
   return user;
+}
+
+/**
+ * Every admin server action and admin query entry point. Not staff → admin login;
+ * staff without the permission → ActionError(FORBIDDEN) (runAction turns it into
+ * `{ ok: false, error: FORBIDDEN }`). Pages check `can()` and render <Forbidden />.
+ */
+export async function requirePermission(permission: Permission): Promise<SessionUser> {
+  const user = await requireStaff();
+  if (!can(user, permission)) throw new ActionError(FORBIDDEN);
+  return user;
+}
+
+/** Full admin rights (ADMIN role). Prefer requirePermission() for specific checks. */
+export async function requireAdmin(): Promise<SessionUser> {
+  return requirePermission("users:manage");
 }

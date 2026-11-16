@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { safeCallbackUrl } from "@/lib/callback-url";
+import { isStaffRole } from "@/lib/auth/permissions";
+import { safeAdminCallbackUrl, safeCallbackUrl } from "@/lib/callback-url";
 
 /**
  * Proxy (runs on the Node.js runtime).
@@ -12,14 +13,19 @@ import { safeCallbackUrl } from "@/lib/callback-url";
  *   app/(shop)/quick/[slug] redirects too, but under Cache Components that one
  *   streams (200 + meta refresh), so this gives a real HTTP redirect.
  *
- * - /account/** needs a session; /admin/** needs role ADMIN. Signed-out visitors go
- *   to /sign-in?callbackUrl=<where they were going>; signed-in customers on /admin go home.
+ * - /account/** needs a session: signed-out visitors go to /sign-in?callbackUrl=….
+ *
+ * - /admin/** needs a STAFF or ADMIN session, except the admin auth pages
+ *   (login, register, forgot/reset password). Anyone else, signed-in customers
+ *   included, goes to /admin/login?callbackUrl=…. Staff already signed in skip
+ *   /admin/login and /admin/register. Per-permission checks happen in the pages
+ *   and in every admin action (lib/auth/permissions.ts).
  *
  * - /sign-in, /sign-up: signed-in users go to their callbackUrl (same-site only) or
  *   /account. Forgot/reset password stay reachable (a reset link works signed in too).
  *
  * This is the first line of defense only. The authoritative checks are
- * requireUser() / requireAdmin() in the account and admin layouts, and every
+ * requireUser() / requireStaff() in the account and admin layouts, and every
  * server action re-checks the session itself.
  */
 export async function proxy(request: NextRequest) {
@@ -34,6 +40,8 @@ export async function proxy(request: NextRequest) {
     const slug = pathname.slice("/quick/".length).split("/")[0] ?? "";
     return NextResponse.redirect(new URL(`/product/${slug}`, request.url), 307);
   }
+
+  if (pathname === "/admin" || pathname.startsWith("/admin/")) return adminGate(request);
 
   const isAuthPage = pathname === "/sign-in" || pathname === "/sign-up";
   // Protected areas skip the signed cookie cache (one Session lookup), so a revoked
@@ -54,10 +62,32 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (pathname.startsWith("/admin") && session.user.role !== "ADMIN") {
-    return NextResponse.redirect(new URL("/", request.url));
-  }
+  return NextResponse.next();
+}
 
+const ADMIN_PUBLIC = new Set(["/admin/login", "/admin/register", "/admin/forgot-password", "/admin/reset-password"]);
+const ADMIN_SKIP_WHEN_SIGNED_IN = new Set(["/admin/login", "/admin/register"]);
+
+async function adminGate(request: NextRequest) {
+  const { pathname, search, searchParams } = request.nextUrl;
+  const isPublic = ADMIN_PUBLIC.has(pathname);
+  const session = await auth.api.getSession({
+    headers: request.headers,
+    query: { disableCookieCache: !isPublic },
+  });
+  const staff = session && isStaffRole(session.user.role);
+
+  if (isPublic) {
+    if (staff && ADMIN_SKIP_WHEN_SIGNED_IN.has(pathname)) {
+      return NextResponse.redirect(new URL(safeAdminCallbackUrl(searchParams.get("callbackUrl")), request.url));
+    }
+    return NextResponse.next();
+  }
+  if (!staff) {
+    const url = new URL("/admin/login", request.url);
+    url.searchParams.set("callbackUrl", `${pathname}${search}`);
+    return NextResponse.redirect(url);
+  }
   return NextResponse.next();
 }
 

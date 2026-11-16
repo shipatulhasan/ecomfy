@@ -15,3 +15,6 @@ export const ok = <T>(data: T): ActionResult<T> => ({ ok: true, data });
 
 /** `error` value of actions that need a session; the client sends the visitor to sign in. */
 export const SIGN_IN_REQUIRED = "SIGN_IN_REQUIRED";
+
+/** `error` value of admin actions the signed-in staff member isn't permitted to run (a 403). */
+export const FORBIDDEN = "You don't have permission to do that.";

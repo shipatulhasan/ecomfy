@@ -6,6 +6,7 @@ import type { Prisma } from "@/lib/generated/prisma/client";
 import type { PaymentMethod } from "@/lib/generated/prisma/enums";
 import { sendMail } from "@/lib/mail";
 import { formatPrice } from "@/lib/money";
+import { invalidateOrderAggregates } from "@/lib/orders/cache";
 import { recordStatus } from "@/lib/orders/history";
 import { paymentLog, paymentWarn, type LogEntry } from "./log";
 import type { CallbackResult } from "./types";
@@ -203,6 +204,7 @@ export async function markPaid(reference: string, ids: GatewayIds, tag: string, 
   const p = await prisma.payment.findUnique({ where: { reference }, select: { id: true } });
   if (p) await appendPaymentLog(p.id, ...log, paymentLog(tag, `mark-paid:${result.outcome}`, { reference, ...ids }));
   if (result.outcome === "paid" && result.orderId) queueConfirmationEmail(result.orderId);
+  if (result.outcome === "paid") invalidateOrderAggregates();
   return result;
 }
 
@@ -241,6 +243,7 @@ export async function markFailed(
 
   const p = await prisma.payment.findUnique({ where: { reference }, select: { id: true } });
   if (p) await appendPaymentLog(p.id, ...log, paymentLog(tag, `mark-${outcome}:${result.outcome}`, { reference, reason }));
+  if (result.outcome === "failed" || result.outcome === "cancelled") invalidateOrderAggregates();
   return result;
 }
 
@@ -288,6 +291,7 @@ export async function expireStale(opts: { orderId?: string; limit?: number } = {
       paymentLog("[payments]", "expired", { orderId: id });
     }
   }
+  if (expired > 0) invalidateOrderAggregates();
   return expired;
 }
 

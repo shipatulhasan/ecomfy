@@ -12,6 +12,7 @@ import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
 import type { PaymentMethod } from "@/lib/generated/prisma/enums";
 import { toDisplayCents } from "@/lib/money";
+import { invalidateOrderAggregates } from "@/lib/orders/cache";
 import { recordStatus } from "@/lib/orders/history";
 import { startPayment } from "@/lib/payments/service";
 import {
@@ -229,6 +230,7 @@ export async function placeOrder(input: unknown): Promise<ActionResult<PlaceOrde
     }
 
     await rememberOrder(created.orderId);
+    invalidateOrderAggregates();
     if (user && data.saveAddress) await saveDefaultAddress(user.id, data.billing);
     return handOff(created.orderId, method, created.attempt);
   });

@@ -12,4 +12,8 @@ export const CacheTags = {
   coupons: "coupons",
   /** Store settings + shipping zones (lib/queries/settings.ts). */
   settings: "settings",
+  /** Admin order aggregates (dashboard, badge counts). Order/payment mutations invalidate it. */
+  orders: "orders",
+  /** Admin members + pending invites (Control Authority). */
+  adminMembers: "admin-members",
 } as const;

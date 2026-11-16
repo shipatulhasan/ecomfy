@@ -13,6 +13,8 @@ import { resolve } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hashPassword } from "better-auth/crypto";
 import { PrismaClient, type Prisma } from "../lib/generated/prisma/client";
+import { hashInviteToken, inviteExpiry, inviteUrl, newInviteToken } from "../lib/admin/invites";
+import { seedDashboard } from "./seed-dashboard";
 import { categories, chineseCabbageReviews, products, REVIEW_BODIES, slugify, type SeedProduct, type SeedVariant } from "./seed-data";
 
 if (process.env.NODE_ENV === "production") {
@@ -21,9 +23,14 @@ if (process.env.NODE_ENV === "production") {
 
 const connectionString = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 if (!connectionString) throw new Error("Set DATABASE_URL (and DIRECT_URL) in .env first.");
+// Admin / staff accounts use SEED_PASSWORD; every customer account uses CUSTOMER_PASSWORD.
 const password = process.env.SEED_PASSWORD;
 if (!password || password.length < 8) {
-  throw new Error("Set SEED_PASSWORD (8+ chars) in .env — used for every seeded account.");
+  throw new Error("Set SEED_PASSWORD (8+ chars) in .env — used for the seeded admin and staff accounts.");
+}
+const customerPassword = process.env.CUSTOMER_PASSWORD;
+if (!customerPassword || customerPassword.length < 8) {
+  throw new Error("Set CUSTOMER_PASSWORD (8+ chars) in .env — used for every seeded customer account.");
 }
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
@@ -92,7 +99,7 @@ type SeedUser = {
   key: string;
   name: string;
   email: string;
-  role?: "ADMIN" | "CUSTOMER";
+  role?: "ADMIN" | "STAFF" | "CUSTOMER";
   status?: "ACTIVE" | "INACTIVE" | "VIP";
   phone?: string;
   image?: string;
@@ -104,7 +111,10 @@ type SeedUser = {
 // Admin = "Wade Warren" (admin General Info screen). Customers from the
 // User Dashboard, admin Customers table and PDP Customer Feedback.
 const users: SeedUser[] = [
+  // Dev fixture only: production bootstraps its first admin with `pnpm admin:create`.
   { key: "admin", name: "Wade Warren", email: "admin@ecomfy.test", role: "ADMIN", phone: "01711000120", createdDaysAgo: 400 },
+  // STAFF: orders, products, categories, customers; no coupons / transactions / settings / members.
+  { key: "staff", name: "Olivia Rhye", email: "staff@ecomfy.test", role: "STAFF", phone: "01711000121", createdDaysAgo: 120 },
   { key: "dianne", name: "Dianne Russell", email: "dianne.russell@ecomfy.test", phone: "01712555011", createdDaysAgo: 600 },
   { key: "john", name: "John Doe", email: "john.doe@ecomfy.test", phone: "01813000001", createdDaysAgo: 320 },
   { key: "jane", name: "Jane Smith", email: "jane.smith@ecomfy.test", phone: "01913000002", status: "INACTIVE", createdDaysAgo: 280 },
@@ -121,14 +131,14 @@ const users: SeedUser[] = [
 async function reset() {
   // Table names are the Prisma model names (no @@map).
   await prisma.$executeRawUnsafe(`
-    TRUNCATE "OrderStatusHistory", "Payment", "OrderItem", "Order", "Settings", "ShippingZone", "GatewayToken", "CartItem", "Cart", "Wishlist", "Review", "ProductAttribute",
+    TRUNCATE "AuditLog", "AdminInvite", "OrderStatusHistory", "Payment", "OrderItem", "Order", "Settings", "ShippingZone", "GatewayToken", "CartItem", "Cart", "Wishlist", "Review", "ProductAttribute",
              "ProductImage", "Variant", "Product", "Category", "Address", "Coupon",
              "Session", "Account", "Verification", "User"
     RESTART IDENTITY CASCADE`);
 }
 
 async function seedUsers() {
-  const hash = await hashPassword(password!);
+  const [staffHash, customerHash] = await Promise.all([hashPassword(password!), hashPassword(customerPassword!)]);
   const ids: Record<string, string> = {};
   for (const u of users) {
     const id = randomUUID();
@@ -146,7 +156,7 @@ async function seedUsers() {
         image: u.image,
         createdAt,
         accounts: {
-          create: { id: randomUUID(), accountId: id, providerId: "credential", password: hash, createdAt },
+          create: { id: randomUUID(), accountId: id, providerId: "credential", password: u.role === "ADMIN" || u.role === "STAFF" ? staffHash : customerHash, createdAt },
         },
       },
     });
@@ -511,6 +521,63 @@ async function main() {
   );
   await prisma.review.createMany({ data: extra });
 
+  // ── Admin: dashboard data, drafts, stock-outs, invites ──
+  // Red Chili sells well but is out of stock now (Best selling "Stock out").
+  await prisma.variant.updateMany({ where: { productId: catalog["red-chili"]!.id }, data: { stock: 0 } });
+  const dash = await seedDashboard(prisma, {
+    catalog,
+    hash: await hashPassword(customerPassword!),
+    couponId: coupon.id,
+    outOfStock: ["surjapuri-mango", "red-chili"],
+  });
+  await prisma.$executeRawUnsafe(
+    `SELECT setval(pg_get_serial_sequence('"Order"', 'number'), (SELECT MAX("number") FROM "Order"))`,
+  );
+
+  // Drafts for the dashboard's "Add New Product" card.
+  const fruit = await prisma.category.findUniqueOrThrow({ where: { slug: "fresh-fruit" }, select: { id: true } });
+  const drafts: [name: string, image: string, taka: number][] = [
+    ["Green Apple Gift Box", "green-apple", 39.99],
+    ["Fresh Mango Family Pack", "fresh-mango", 19.99],
+    ["Indian Orange Bulk 5 kg", "fresh-indian-orange", 34.99],
+  ];
+  for (const [i, [name, image, taka]] of drafts.entries()) {
+    const img = asset("products", image);
+    await prisma.product.create({
+      data: {
+        name,
+        slug: slugify(name),
+        code: String(30001 + i).padStart(6, "0"),
+        description: `<p>${name}, waiting to be published.</p>`,
+        status: "DRAFT",
+        priceCents: cents(taka),
+        categoryId: fruit.id,
+        createdAt: new Date(Date.now() - (i + 1) * 3_600_000),
+        images: { create: { url: img.url, alt: name, width: img.width, height: img.height } },
+        variants: { create: { sku: `DRAFT-${i + 1}`, name: "1 pack", priceCents: cents(taka), stock: 50, isDefault: true } },
+      },
+    });
+  }
+
+  // Invites: one pending (link printed below), one expired, one already used.
+  const origin = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
+  const pending = newInviteToken();
+  const expired = newInviteToken();
+  await prisma.adminInvite.createMany({
+    data: [
+      { email: "new.staff@ecomfy.test", firstName: "Nadia", lastName: "Islam", role: "STAFF", tokenHash: pending.tokenHash, invitedById: u.admin!, expiresAt: inviteExpiry() },
+      { email: "late.staff@ecomfy.test", firstName: "Rafiq", lastName: "Uddin", role: "STAFF", tokenHash: expired.tokenHash, invitedById: u.admin!, expiresAt: new Date(Date.now() - 3_600_000), createdAt: new Date(Date.now() - 49 * 3_600_000) },
+      { email: "staff@ecomfy.test", firstName: "Olivia", lastName: "Rhye", role: "STAFF", tokenHash: hashInviteToken("seed-used-invite-token-olivia"), invitedById: u.admin!, expiresAt: inviteExpiry(daysAgo(120)), acceptedAt: daysAgo(120), acceptedUserId: u.staff!, createdAt: daysAgo(121) },
+    ],
+  });
+  await prisma.auditLog.createMany({
+    data: [
+      { actorId: u.admin!, action: "invite.create", entity: "AdminInvite", after: { email: "staff@ecomfy.test", role: "STAFF" }, createdAt: daysAgo(121) },
+      { actorId: u.staff!, action: "invite.accept", entity: "AdminInvite", after: { email: "staff@ecomfy.test", role: "STAFF" }, createdAt: daysAgo(120) },
+      { actorId: u.admin!, action: "invite.create", entity: "AdminInvite", after: { email: "new.staff@ecomfy.test", role: "STAFF" } },
+    ],
+  });
+
   // Denormalized rating fields used by product cards.
   const stats = await prisma.review.groupBy({ by: ["productId"], _avg: { rating: true }, _count: true });
   for (const s of stats) {
@@ -521,14 +588,24 @@ async function main() {
   }
 
   const orderCount = await prisma.order.count();
+  console.log(`✔ dashboard: ${dash.customers} customers, ${dash.orders} orders over 90 days, 3 draft products, Red Chili out of stock`);
   console.log(`✔ ${orderCount} orders, 1 cart (4 lines), 4 wishlist items, ${chineseCabbageReviews.length + extra.length} reviews, coupons ECO20 / EXPIRED10 / BIG50`);
   console.log(`✔ settings (COD ৳20 fee, ৳20,000 max, no COD in ${noCod.join(" / ")}), zones Inside Dhaka ৳60 / Outside Dhaka ৳120`);
-  console.log("\nDemo accounts (password = SEED_PASSWORD from .env):");
+  console.log("\nDemo accounts (passwords come from .env, not printed):");
   console.table([
-    { role: "admin", email: "admin@ecomfy.test", password },
-    { role: "customer (orders, cart, wishlist)", email: "dianne.russell@ecomfy.test", password },
-    { role: "customer (email not verified)", email: "arif.hossain@ecomfy.test", password },
+    { role: "admin (/admin/login)", email: "admin@ecomfy.test", password: "SEED_PASSWORD" },
+    { role: "staff (/admin/login)", email: "staff@ecomfy.test", password: "SEED_PASSWORD" },
+    { role: "customer (orders, cart, wishlist)", email: "dianne.russell@ecomfy.test", password: "CUSTOMER_PASSWORD" },
+    { role: "customer (email not verified)", email: "arif.hossain@ecomfy.test", password: "CUSTOMER_PASSWORD" },
   ]);
+
+  // Spot-check numbers for the dashboard (compare with psql / the widgets).
+  const paid = await prisma.order.aggregate({ where: { paymentStatus: "PAID" }, _sum: { totalCents: true }, _count: true });
+  console.log(`\nPAID orders: ${paid._count}, revenue ৳${((paid._sum.totalCents ?? 0) / 100).toFixed(2)} (all time)`);
+  console.log("\nAdmin invites:");
+  console.log(`  pending  new.staff@ecomfy.test  ${inviteUrl(pending.token, origin)}`);
+  console.log(`  expired  late.staff@ecomfy.test ${inviteUrl(expired.token, origin)}`);
+  console.log(`  used     staff@ecomfy.test      ${inviteUrl("seed-used-invite-token-olivia", origin)}`);
 }
 
 main()

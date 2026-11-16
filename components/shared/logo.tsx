@@ -53,5 +53,5 @@ export function LogoMark({ className }: { className?: string }) {
 const leafClass: Record<(typeof LOGO_MARK.leaves)[number]["token"], string> = {
   "brand-dark": "fill-brand-dark stroke-brand-dark",
   "brand-light": "fill-brand-light stroke-brand-light",
-  primary: "fill-primary stroke-primary",
+  primary: "fill-logo-leaf stroke-logo-leaf",
 };

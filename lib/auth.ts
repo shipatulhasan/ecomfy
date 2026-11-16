@@ -82,7 +82,7 @@ export const auth = betterAuth({
   user: {
     additionalFields: {
       role: {
-        type: ["CUSTOMER", "ADMIN"],
+        type: ["CUSTOMER", "STAFF", "ADMIN"],
         defaultValue: "CUSTOMER",
         input: false, // never settable from sign-up payloads
       },
