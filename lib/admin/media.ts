@@ -10,6 +10,6 @@ export type MediaItem = {
   alt: string;
   blurDataURL: string | null;
   createdAt: string;
-  /** Products using this image (Product Media "used" filter, delete guard). */
-  usedBy?: { id: string; name: string }[];
+  /** Products and categories using this image (Product Media "used" filter, delete guard). */
+  usedBy?: { id: string; name: string; href: string }[];
 };

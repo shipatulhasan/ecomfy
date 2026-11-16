@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { CacheTags } from "@/lib/cache-tags";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { SHOP_PAGE_SIZE, type ShopFilters, type ShopSort } from "@/lib/shop-params";
-import { productCardSelect, toCards, type ProductCardData } from "./catalog";
+import { productCardSelect, toCards, visibleCategoryWhere, type ProductCardData } from "./catalog";
 
 /**
  * Shop listing reads. Filtering, sorting and pagination all run in Postgres.
@@ -26,7 +26,8 @@ const ORDER_BY: Record<ShopSort, Prisma.ProductOrderByWithRelationInput[]> = {
 
 function shopWhere(f: ShopFilters): Prisma.ProductWhereInput {
   const where: Prisma.ProductWhereInput = { status: "PUBLISHED" };
-  if (f.category) where.category = { slug: f.category };
+  // A parent category includes its subcategories' products.
+  if (f.category) where.category = { OR: [{ slug: f.category }, { parent: { slug: f.category } }] };
   if (f.q) where.name = { contains: f.q, mode: "insensitive" };
   if (f.min != null || f.max != null) {
     where.priceCents = {
@@ -87,7 +88,7 @@ async function loadShopPage(filters: ShopFilters): Promise<ShopPage> {
 // ───────────────────────── filter options ─────────────────────────
 
 export type ShopFilterOptions = {
-  categories: { slug: string; name: string; count: number }[];
+  categories: { slug: string; name: string; count: number; depth: 0 | 1 }[];
   /** Whole dollars, floor/ceil of the catalog's default-variant prices. */
   price: { min: number; max: number };
   tags: { tag: string; count: number }[];
@@ -104,7 +105,11 @@ export async function getShopFilterOptions(): Promise<ShopFilterOptions> {
 
   const active = { status: "PUBLISHED" } as const;
   const [categories, perCategory, price, tags, brands] = await Promise.all([
-    prisma.category.findMany({ orderBy: { sortOrder: "asc" }, select: { id: true, slug: true, name: true } }),
+    prisma.category.findMany({
+      where: visibleCategoryWhere,
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, slug: true, name: true, parentId: true },
+    }),
     prisma.product.groupBy({ by: ["categoryId"], where: active, _count: { _all: true } }),
     prisma.product.aggregate({ where: active, _min: { priceCents: true }, _max: { priceCents: true } }),
     prisma.$queryRaw<{ tag: string; count: number }[]>`
@@ -124,7 +129,17 @@ export async function getShopFilterOptions(): Promise<ShopFilterOptions> {
 
   const counts = new Map(perCategory.map((c) => [c.categoryId, c._count._all]));
   return {
-    categories: categories.map((c) => ({ slug: c.slug, name: c.name, count: counts.get(c.id) ?? 0 })),
+    // Tree order (parent, then its children, indented); a parent counts its children's products.
+    categories: categories
+      .filter((c) => c.parentId === null)
+      .flatMap((p) => {
+        const kids = categories.filter((c) => c.parentId === p.id);
+        const own = counts.get(p.id) ?? 0;
+        return [
+          { slug: p.slug, name: p.name, count: kids.reduce((n, k) => n + (counts.get(k.id) ?? 0), own), depth: 0 as const },
+          ...kids.map((k) => ({ slug: k.slug, name: k.name, count: counts.get(k.id) ?? 0, depth: 1 as const })),
+        ];
+      }),
     price: {
       min: Math.floor((price._min.priceCents ?? 0) / 100),
       max: Math.ceil((price._max.priceCents ?? 0) / 100),
@@ -140,7 +155,27 @@ export async function getCategoryBySlug(slug: string) {
   cacheTag(CacheTags.categories);
   cacheLife("hours");
 
-  return prisma.category.findUnique({ where: { slug }, select: { slug: true, name: true } });
+  return prisma.category.findFirst({
+    where: { slug, ...visibleCategoryWhere },
+    select: { slug: true, name: true, description: true, seoTitle: true, seoDescription: true },
+  });
+}
+
+/**
+ * Old category slug → current slug (admin slug edits write a CATEGORY SlugRedirect).
+ * Only to a category the storefront shows.
+ */
+export async function getCategorySlugRedirect(slug: string): Promise<string | null> {
+  "use cache";
+  cacheTag(CacheTags.categories);
+  cacheLife("hours");
+
+  const row = await prisma.slugRedirect.findUnique({
+    where: { kind_fromSlug: { kind: "CATEGORY", fromSlug: slug } },
+    select: { category: { select: { slug: true, isActive: true, parent: { select: { isActive: true } } } } },
+  });
+  const c = row?.category;
+  return c && c.isActive && (c.parent?.isActive ?? true) ? c.slug : null;
 }
 
 /** Sidebar "Sale Products": best-reviewed products whose default variant is discounted. */

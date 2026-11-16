@@ -112,6 +112,7 @@ Below 1024px the storefront behaves like a native app. Laptop and desktop follow
 - **Bottom sheets, not modals or side panels:**
   - Filters, sort, variant pickers and the mini cart use `BottomSheet` (`components/shared/bottom-sheet.tsx`, vaul Drawer with a drag handle).
   - Anything that's a side `Sheet` or `Dialog` on laptop uses `AdaptiveSheet` (bottom sheet below, right sheet above).
+  - URL-driven form modals (admin Create / Edit Category, `?edit=<id>`) use `ResponsiveModal` (`components/shared/responsive-modal.tsx`): one Radix Dialog, a full-height bottom sheet below laptop and a centered dialog above, with a fixed header/footer and a scrolling body.
 - **Rails for horizontal lists:**
   - Use `<Rail>`/`<RailItem>` (`components/shared/rail.tsx`): pure CSS scroll-snap, edge-to-edge bleed, the next item peeks.
   - `laptop="grid"` turns it into the PNG grid from laptop. Products use `ProductRail`.

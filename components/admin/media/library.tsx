@@ -289,7 +289,7 @@ function MediaDetails({ item, onClose }: { item: MediaItem; onClose: () => void 
             <ul className="mt-1 flex flex-col gap-1">
               {item.usedBy.map((p) => (
                 <li key={p.id}>
-                  <Link href={`/admin/products/${p.id}`} className="text-primary hover:underline">
+                  <Link href={p.href} className="text-primary hover:underline">
                     {p.name}
                   </Link>
                 </li>

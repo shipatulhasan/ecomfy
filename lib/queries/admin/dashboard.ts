@@ -299,7 +299,7 @@ async function addNewProduct(): Promise<AddNewProductData> {
     prisma.category.findMany({
       orderBy: [{ products: { _count: "desc" } }, { sortOrder: "asc" }],
       take: 3,
-      select: { id: true, name: true, slug: true, imageUrl: true, _count: { select: { products: true } } },
+      select: { id: true, name: true, slug: true, image: { select: { key: true } }, _count: { select: { products: true } } },
     }),
     prisma.product.findMany({ where: { status: "DRAFT" }, orderBy: { createdAt: "desc" }, take: 3, select: productSelect }),
     prisma.category.findMany({ orderBy: { sortOrder: "asc" }, select: { slug: true, name: true } }),
@@ -310,7 +310,7 @@ async function addNewProduct(): Promise<AddNewProductData> {
       ? drafts
       : await prisma.product.findMany({ orderBy: { createdAt: "desc" }, take: 3, select: productSelect });
   return {
-    categories: categories.map(({ _count, ...c }) => ({ ...c, products: _count.products })),
+    categories: categories.map(({ _count, image, ...c }) => ({ ...c, imageUrl: image ? mediaUrl(image.key) : null, products: _count.products })),
     products: products.map(({ images, ...p }) => ({ ...p, imageUrl: images[0] ? mediaUrl(images[0].media.key) : null })),
     categoryOptions: allCategories,
   };

@@ -160,7 +160,10 @@ async function countOnly(where: Prisma.Sql[], stock: Prisma.Sql): Promise<number
 export async function getProductFilterOptions() {
   await requirePermission("products:read");
   const [categories, brands, tags] = await Promise.all([
-    prisma.category.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true, slug: true } }),
+    prisma.category.findMany({
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, slug: true, parentId: true },
+    }),
     prisma.product.findMany({
       where: { deletedAt: null, brand: { not: null } },
       distinct: ["brand"],
@@ -170,8 +173,13 @@ export async function getProductFilterOptions() {
     prisma.$queryRaw<{ tag: string }[]>`
       SELECT DISTINCT unnest("tags") AS tag FROM "Product" WHERE "deletedAt" IS NULL ORDER BY tag LIMIT 500`,
   ]);
+  // Tree order; subcategories read "Parent › Child".
+  const top = categories.filter((c) => c.parentId === null);
   return {
-    categories,
+    categories: top.flatMap((p) => [
+      { id: p.id, name: p.name, slug: p.slug },
+      ...categories.filter((c) => c.parentId === p.id).map((c) => ({ id: c.id, name: `${p.name} › ${c.name}`, slug: c.slug })),
+    ]),
     brands: brands.map((b) => b.brand!).filter(Boolean),
     tags: tags.map((t) => t.tag),
   };
@@ -295,10 +303,10 @@ export async function listMedia(p: MediaListParams): Promise<{ items: MediaItem[
   await requirePermission("products:read");
   const where: Prisma.MediaWhereInput = {
     // Abandoned product-form uploads aren't library items (the cleanup job removes them).
-    NOT: { key: { startsWith: "tmp/" }, productImages: { none: {} } },
+    NOT: { key: { startsWith: "tmp/" }, productImages: { none: {} }, categoryImages: { none: {} } },
     ...(p.q && { OR: [{ originalName: { contains: p.q, mode: "insensitive" } }, { alt: { contains: p.q, mode: "insensitive" } }] }),
-    ...(p.used === "used" && { productImages: { some: {} } }),
-    ...(p.used === "unused" && { productImages: { none: {} } }),
+    ...(p.used === "used" && { OR: [{ productImages: { some: {} } }, { categoryImages: { some: {} } }] }),
+    ...(p.used === "unused" && { productImages: { none: {} }, categoryImages: { none: {} } }),
   };
   const [total, rows] = await prisma.$transaction([
     prisma.media.count({ where }),
@@ -307,13 +315,22 @@ export async function listMedia(p: MediaListParams): Promise<{ items: MediaItem[
       orderBy: [{ createdAt: "desc" }, { id: "asc" }],
       skip: (p.page - 1) * MEDIA_PER_PAGE,
       take: MEDIA_PER_PAGE,
-      include: { productImages: { take: 3, select: { product: { select: { id: true, name: true } } } } },
+      include: {
+        productImages: { take: 3, select: { product: { select: { id: true, name: true } } } },
+        categoryImages: { take: 3, select: { id: true, name: true } },
+      },
     }),
   ]);
   return {
     total,
     pages: Math.max(1, Math.ceil(total / MEDIA_PER_PAGE)),
-    items: rows.map((m) => ({ ...mediaItem(m), usedBy: m.productImages.map((i) => i.product) })),
+    items: rows.map((m) => ({
+      ...mediaItem(m),
+      usedBy: [
+        ...m.productImages.map((i) => ({ ...i.product, href: `/admin/products/${i.product.id}` })),
+        ...m.categoryImages.map((c) => ({ id: c.id, name: `${c.name} (category)`, href: `/admin/categories?edit=${c.id}` })),
+      ],
+    })),
   };
 }
 

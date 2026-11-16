@@ -30,8 +30,11 @@ async function maxUploadMb(): Promise<number> {
 /** Keep only a display name; it never becomes part of the object key. */
 const displayName = (name: string) => name.replace(/^.*[\\/]/, "").replace(/[\u0000-\u001f]/g, "").slice(0, 200) || "image";
 
+/** Product and category forms share the uploader (presigned PUT → confirmUpload). */
+const UPLOADERS = ["products:write", "categories:write"] as const;
+
 export async function getUploadUrl(input: unknown): Promise<ActionResult<{ key: string; url: string; maxMb: number }>> {
-  return runAdminAction("products:write", uploadRequestSchema, input, async (data) => {
+  return runAdminAction(UPLOADERS, uploadRequestSchema, input, async (data) => {
     const maxMb = await maxUploadMb();
     if (data.size > maxMb * 1024 * 1024) throw new ActionError(`Images must be ${maxMb} MB or smaller.`);
     const ext = UPLOAD_MIME[data.mime];
@@ -42,7 +45,7 @@ export async function getUploadUrl(input: unknown): Promise<ActionResult<{ key: 
 }
 
 export async function confirmUpload(input: unknown): Promise<ActionResult<MediaItem>> {
-  return runAdminAction("products:write", confirmUploadSchema, input, async (data, actor) => {
+  return runAdminAction(UPLOADERS, confirmUploadSchema, input, async (data, actor) => {
     const existing = await prisma.media.findUnique({ where: { key: data.key } });
     if (existing) return toItem(existing);
 
@@ -107,15 +110,24 @@ export async function deleteMedia(input: unknown): Promise<ActionResult<{ delete
   return runAdminAction("products:write", mediaIdsSchema, input, async (data, actor) => {
     const rows = await prisma.media.findMany({
       where: { id: { in: data.ids } },
-      select: { id: true, key: true, originalName: true, productImages: { select: { product: { select: { name: true } } }, take: 1 } },
+      select: {
+        id: true,
+        key: true,
+        originalName: true,
+        productImages: { select: { product: { select: { name: true } } }, take: 1 },
+        categoryImages: { select: { name: true }, take: 1 },
+      },
     });
-    const inUse = rows.filter((r) => r.productImages.length > 0);
+    const inUse = rows.filter((r) => r.productImages.length > 0 || r.categoryImages.length > 0);
     if (inUse.length > 0) {
-      const names = inUse.map((r) => `${r.originalName} (${r.productImages[0]!.product.name})`).slice(0, 3).join(", ");
-      throw new ActionError(`Still used by a product: ${names}. Remove it from the product first.`);
+      const names = inUse
+        .map((r) => `${r.originalName} (${r.productImages[0]?.product.name ?? `${r.categoryImages[0]!.name} category`})`)
+        .slice(0, 3)
+        .join(", ");
+      throw new ActionError(`Still in use: ${names}. Remove it from the product or category first.`);
     }
     await prisma.$transaction(async (tx) => {
-      await tx.media.deleteMany({ where: { id: { in: rows.map((r) => r.id) }, productImages: { none: {} } } });
+      await tx.media.deleteMany({ where: { id: { in: rows.map((r) => r.id) }, productImages: { none: {} }, categoryImages: { none: {} } } });
       await logAudit(
         { actorId: actor.id, action: "media.delete", entity: "Media", before: { ids: rows.map((r) => r.id), keys: rows.map((r) => r.key) } },
         tx,

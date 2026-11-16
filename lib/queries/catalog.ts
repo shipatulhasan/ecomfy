@@ -4,20 +4,87 @@ import { prisma } from "@/lib/db";
 import { CacheTags } from "@/lib/cache-tags";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { firstImage, productImages, type ImageData } from "@/lib/catalog/images";
+import { mediaUrl } from "@/lib/storage/core";
 
 /**
  * Catalog reads are cached with "use cache" and tagged so admin mutations can
  * invalidate them (updateTag(CacheTags.categories) in the admin action).
  */
-export async function getCategories() {
+
+/**
+ * What the storefront may show: active categories whose parent (if any) is active.
+ * Deactivating a parent hides its children too. Products stay reachable by URL.
+ */
+export const visibleCategoryWhere = {
+  isActive: true,
+  OR: [{ parentId: null }, { parent: { isActive: true } }],
+} satisfies Prisma.CategoryWhereInput;
+
+const categoryCardSelect = {
+  id: true,
+  name: true,
+  slug: true,
+  parentId: true,
+  image: { select: { key: true } },
+} satisfies Prisma.CategorySelect;
+
+export type StoreCategory = { id: string; name: string; slug: string; parentId: string | null; imageUrl: string | null };
+export type StoreCategoryNode = StoreCategory & { children: StoreCategory[] };
+
+const toStoreCategory = ({ image, ...c }: Prisma.CategoryGetPayload<{ select: typeof categoryCardSelect }>): StoreCategory => ({
+  ...c,
+  imageUrl: image ? mediaUrl(image.key) : null,
+});
+
+/** Active top-level categories in admin order, each with its active children (header menu). */
+export async function getCategoryTree(): Promise<StoreCategoryNode[]> {
   "use cache";
   cacheTag(CacheTags.categories);
   cacheLife("hours");
 
-  return prisma.category.findMany({
-    orderBy: { sortOrder: "asc" },
-    select: { id: true, name: true, slug: true, imageUrl: true },
+  const rows = await prisma.category.findMany({
+    where: visibleCategoryWhere,
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: categoryCardSelect,
   });
+  const all = rows.map(toStoreCategory);
+  return all
+    .filter((c) => c.parentId === null)
+    .map((p) => ({ ...p, children: all.filter((c) => c.parentId === p.id) }));
+}
+
+/** Active top-level categories, in admin order (Search "Browse categories"). */
+export async function getCategories(): Promise<StoreCategory[]> {
+  "use cache";
+  cacheTag(CacheTags.categories);
+  cacheLife("hours");
+
+  const rows = await prisma.category.findMany({
+    where: { isActive: true, parentId: null },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: categoryCardSelect,
+  });
+  return rows.map(toStoreCategory);
+}
+
+/** Home → Popular Categories: active categories flagged "Featured on home", in admin order. */
+export async function getHomeCategories(): Promise<StoreCategory[]> {
+  "use cache";
+  cacheTag(CacheTags.categories);
+  cacheLife("hours");
+
+  const rows = await prisma.category.findMany({
+    where: { ...visibleCategoryWhere, isFeatured: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { ...categoryCardSelect, sortOrder: true, parent: { select: { sortOrder: true } } },
+  });
+  // Tree order: a featured child sits right after its parent's slot.
+  const key = (r: (typeof rows)[number]) => [r.parent?.sortOrder ?? r.sortOrder, r.parent ? 1 : 0, r.sortOrder] as const;
+  rows.sort((a, b) => {
+    const [x, y] = [key(a), key(b)];
+    return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+  });
+  return rows.map((r) => toStoreCategory({ id: r.id, name: r.name, slug: r.slug, parentId: r.parentId, image: r.image }));
 }
 
 // ───────────────────────── product cards ─────────────────────────

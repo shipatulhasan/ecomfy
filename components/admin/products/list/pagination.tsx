@@ -7,11 +7,16 @@ import { cn } from "@/lib/utils";
 /**
  * Product List.png pagination: "← Previous" (white, shadow) | numbered 36px
  * squares with "....." | "Next →" (green). Mobile keeps prev / current / next.
+ * Also Categories.png.
  */
 export function ProductPagination({ params, pages }: { params: ProductListParams; pages: number }) {
+  return <ListPagination page={params.page} pages={pages} href={(n) => productParamsHref(params, { page: n })} />;
+}
+
+/** The same pager for any admin list (Categories). */
+export function ListPagination({ page: requested, pages, href }: { page: number; pages: number; href: (page: number) => string }) {
   if (pages <= 1) return null;
-  const page = Math.min(params.page, pages);
-  const href = (n: number) => productParamsHref(params, { page: n });
+  const page = Math.min(requested, pages);
   const edge = "tap-target inline-flex h-10.5 items-center gap-2 rounded-lg px-4 text-lead font-medium transition-colors";
 
   return (

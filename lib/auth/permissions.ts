@@ -12,6 +12,7 @@ export const PERMISSIONS = [
   "orders:update",
   "products:read",
   "products:write",
+  "categories:read",
   "categories:write",
   "customers:read",
   "coupons:write",
@@ -31,7 +32,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "orders:update",
     "products:read",
     "products:write",
-    "categories:write",
+    "categories:read", // read-only: creating / editing categories is ADMIN-only
     "customers:read",
   ],
   ADMIN: PERMISSIONS,

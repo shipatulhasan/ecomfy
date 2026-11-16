@@ -18,6 +18,9 @@ import { safeAdminCallbackUrl, safeCallbackUrl } from "@/lib/callback-url";
  *   the current URL on page loads. The page redirects too, but it streams (200 +
  *   client redirect), which crawlers don't treat as a move. One indexed lookup.
  *
+ * - /shop?category=<old-slug>: a renamed category's old slug (CATEGORY SlugRedirect)
+ *   gets a 308 to the same URL with the current slug, for the same reason.
+ *
  * - /account/** needs a session: signed-out visitors go to /sign-in?callbackUrl=….
  *
  * - /admin/** needs a STAFF or ADMIN session, except the admin auth pages
@@ -47,6 +50,8 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname.startsWith("/product/")) return productRedirect(request);
+
+  if (pathname === "/shop") return categoryRedirect(request);
 
   if (pathname === "/admin" || pathname.startsWith("/admin/")) return adminGate(request);
 
@@ -78,11 +83,28 @@ async function productRedirect(request: NextRequest) {
   const slug = decodeURIComponent(request.nextUrl.pathname.slice("/product/".length).split("/")[0] ?? "");
   if (!/^[a-z0-9-]{1,120}$/.test(slug)) return NextResponse.next();
   const hit = await prisma.slugRedirect
-    .findUnique({ where: { fromSlug: slug }, select: { product: { select: { slug: true, status: true } } } })
+    .findUnique({ where: { kind_fromSlug: { kind: "PRODUCT", fromSlug: slug } }, select: { product: { select: { slug: true, status: true } } } })
     .catch(() => null);
-  if (!hit || hit.product.status !== "PUBLISHED" || hit.product.slug === slug) return NextResponse.next();
-  const url = new URL(`/product/${hit.product.slug}`, request.url);
+  const product = hit?.product;
+  if (!product || product.status !== "PUBLISHED" || product.slug === slug) return NextResponse.next();
+  const url = new URL(`/product/${product.slug}`, request.url);
   url.search = request.nextUrl.search;
+  return NextResponse.redirect(url, 308);
+}
+
+async function categoryRedirect(request: NextRequest) {
+  const dest = request.headers.get("sec-fetch-dest");
+  if (dest && dest !== "document") return NextResponse.next(); // router fetches: the page handles it
+  const slug = request.nextUrl.searchParams.get("category") ?? "";
+  if (!/^[a-z0-9-]{1,120}$/.test(slug)) return NextResponse.next();
+  const hit = await prisma.slugRedirect
+    .findUnique({ where: { kind_fromSlug: { kind: "CATEGORY", fromSlug: slug } }, select: { category: { select: { slug: true } } } })
+    .catch(() => null);
+  const category = hit?.category;
+  if (!category || category.slug === slug) return NextResponse.next();
+  const url = request.nextUrl.clone();
+  url.searchParams.set("category", category.slug);
+  url.searchParams.delete("page");
   return NextResponse.redirect(url, 308);
 }
 
@@ -118,6 +140,7 @@ export const config = {
     "/account/:path*",
     "/quick/:path*",
     "/product/:path*",
+    "/shop",
     "/sign-in",
     "/sign-up",
   ],

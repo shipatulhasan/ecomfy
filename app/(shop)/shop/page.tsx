@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { Suspense } from "react";
 import { Container } from "@/components/shared/container";
 import { PageTransition } from "@/components/shared/page-transition";
@@ -10,7 +10,7 @@ import { ShopShell } from "@/components/shop/listing/shop-shell";
 import { FilterPanelSkeleton, ShopMainSkeleton } from "@/components/shop/listing/skeletons";
 import { breadcrumbJsonLd, PageHero, type Crumb } from "@/components/shop/page-hero";
 import { shopContent } from "@/lib/config/shop";
-import { getCategoryBySlug } from "@/lib/queries/products";
+import { getCategoryBySlug, getCategorySlugRedirect } from "@/lib/queries/products";
 import { shopHref } from "@/lib/shop-params";
 import { absoluteUrl } from "@/lib/site-url";
 import { parseShopParams } from "@/lib/validations/shop";
@@ -29,13 +29,19 @@ type Props = PageProps<"/shop">;
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
   const { filters } = parseShopParams(await searchParams);
   const category = filters.category ? await getCategoryBySlug(filters.category) : null;
-  if (filters.category && !category) notFound();
+  if (filters.category && !category) {
+    // Renamed category (soft navigation; page loads get a 308 from proxy.ts).
+    const moved = await getCategorySlugRedirect(filters.category);
+    if (moved) permanentRedirect(shopHref({ ...filters, category: moved, page: undefined }));
+    notFound();
+  }
 
-  const title = category?.name ?? (filters.q ? `Search: ${filters.q}` : shopContent.title);
+  const title = category ? category.seoTitle || category.name : filters.q ? `Search: ${filters.q}` : shopContent.title;
   return {
     title,
+    // Admin → Categories SEO fields, then the description, then a default.
     description: category
-      ? `Shop ${category.name.toLowerCase()} at Ecofy: fresh, organic and delivered fast.`
+      ? category.seoDescription || category.description || `Shop ${category.name.toLowerCase()} at Ecofy: fresh, organic and delivered fast.`
       : shopContent.description,
     // Canonical keeps only the category: sort, page and the other facets are views of it.
     alternates: { canonical: shopHref({ category: category?.slug }) },

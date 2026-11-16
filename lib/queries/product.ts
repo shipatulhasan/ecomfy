@@ -164,8 +164,8 @@ export async function getSlugRedirect(slug: string): Promise<string | null> {
   cacheLife("hours");
 
   const row = await prisma.slugRedirect.findUnique({
-    where: { fromSlug: slug },
+    where: { kind_fromSlug: { kind: "PRODUCT", fromSlug: slug } },
     select: { product: { select: { slug: true, status: true } } },
   });
-  return row && row.product.status === "PUBLISHED" ? row.product.slug : null;
+  return row?.product?.status === "PUBLISHED" ? row.product.slug : null;
 }

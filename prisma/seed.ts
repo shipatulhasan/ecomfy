@@ -22,7 +22,7 @@ import { derivePrice, UNLIMITED_STOCK } from "../lib/admin/products/rules";
 import { neonStorage, storageKeys } from "../lib/storage/core";
 import { hashInviteToken, inviteExpiry, inviteUrl, newInviteToken } from "../lib/admin/invites";
 import { seedDashboard } from "./seed-dashboard";
-import { categories, chineseCabbageReviews, products, REVIEW_BODIES, slugify, type SeedProduct, type SeedVariant } from "./seed-data";
+import { categories, subcategories, chineseCabbageReviews, products, REVIEW_BODIES, slugify, type SeedProduct, type SeedVariant } from "./seed-data";
 
 if (process.env.NODE_ENV === "production") {
   throw new Error("Refusing to seed a production database.");
@@ -65,16 +65,24 @@ const cents = (taka: number) => Math.round(taka * 100);
 /** Empties the folders the app writes to in this branch's bucket. */
 async function resetBucket() {
   const keys: string[] = [];
-  for (const prefix of ["products/", "media/", "tmp/"]) for await (const o of neonStorage.list(prefix)) keys.push(o.key);
+  for (const prefix of ["products/", "categories/", "media/", "tmp/"]) for await (const o of neonStorage.list(prefix)) keys.push(o.key);
   await neonStorage.delete(keys);
   return keys.length;
 }
 
 /** Uploads one manifest crop for a product and creates its Media row (with blur). */
-async function uploadProductImage(productId: string, assetSlug: string, alt: string): Promise<string> {
-  const a = asset("products", assetSlug);
+function uploadProductImage(productId: string, assetSlug: string, alt: string): Promise<string> {
+  return uploadImage("products", assetSlug, storageKeys.product(productId, randomUUID(), "png"), alt);
+}
+
+/** Same for a category image (Admin → Categories modal uploads to the same storage). */
+function uploadCategoryImage(categoryId: string, group: "products" | "categories", assetSlug: string, alt: string): Promise<string> {
+  return uploadImage(group, assetSlug, storageKeys.category(categoryId, randomUUID(), "png"), alt);
+}
+
+async function uploadImage(group: "products" | "categories", assetSlug: string, key: string, alt: string): Promise<string> {
+  const a = asset(group, assetSlug);
   const file = await readFile(resolve(import.meta.dirname, "../designs/assets", a.url.replace(/^\/seed\//, "")));
-  const key = storageKeys.product(productId, randomUUID(), "png");
   const blur = await sharp(file).resize(16, 16, { fit: "inside" }).webp({ quality: 40 }).toBuffer();
   await neonStorage.put(key, file, "image/png");
   const media = await prisma.media.create({
@@ -269,10 +277,20 @@ async function seedVariantShowcase(categoryId: string) {
 async function seedCatalog() {
   const categoryIds: Record<string, string> = {};
   for (const [i, c] of categories.entries()) {
-    const row = await prisma.category.create({
-      data: { name: c.name, slug: c.slug, sortOrder: i, imageUrl: asset("categories", c.slug).url, createdAt: daysAgo(365) },
-    });
+    // All on Home's Popular Categories, as in Home.png.
+    const row = await prisma.category.create({ data: { name: c.name, slug: c.slug, sortOrder: i, isFeatured: true, createdAt: daysAgo(365) } });
+    const imageId = await uploadCategoryImage(row.id, "categories", c.slug, c.name);
+    await prisma.category.update({ where: { id: row.id }, data: { imageId } });
     categoryIds[c.slug] = row.id;
+  }
+  // Subcategories (one level; Admin → Categories shows them under their parent).
+  // No products yet, so they can be deleted / moved freely.
+  for (const [i, s] of subcategories.entries()) {
+    const row = await prisma.category.create({
+      data: { name: s.name, slug: s.slug, parentId: categoryIds[s.parent]!, sortOrder: i, description: s.description, createdAt: daysAgo(120) },
+    });
+    if (s.image) await prisma.category.update({ where: { id: row.id }, data: { imageId: await uploadCategoryImage(row.id, "products", s.image, s.name) } });
+    categoryIds[s.slug] = row.id;
   }
 
   // slug → { productId, variants by name }

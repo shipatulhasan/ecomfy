@@ -37,7 +37,7 @@ export function CategoryFilter({ categories }: { categories: ShopFilterOptions["
       className="gap-0"
     >
       {visible.map((c) => (
-        <Label key={c.slug} className={row}>
+        <Label key={c.slug} className={cn(row, c.depth === 1 && "ps-6")}>
           <RadioGroupItem value={c.slug} className="size-5" />
           <span>
             {c.name} <span className={count}>({c.count})</span>

@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { siteConfig } from "@/lib/config/site";
 import { CurrencySwitcher } from "@/components/shared/currency-switcher";
-import { getCategories } from "@/lib/queries/catalog";
+import { getCategoryTree } from "@/lib/queries/catalog";
 import { CartDrawer } from "./cart/cart-drawer";
 import { AuthLinks, HeaderBackButton, NavLinks, WishlistLink } from "./header-client";
 
@@ -156,19 +156,24 @@ function AllCategoriesTrigger({ disabled }: { disabled?: boolean }) {
 }
 
 async function AllCategoriesMenu() {
-  await connection(); // DB read at request time (cached by getCategories); no DB needed at build
-  const categories = await getCategories();
+  await connection(); // DB read at request time (cached by getCategoryTree); no DB needed at build
+  const categories = await getCategoryTree();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className="outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
         <AllCategoriesTrigger />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-54.5 rounded-none p-0 shadow-dropdown">
-        {categories.map((c) => (
+        {categories.flatMap((c) => [
           <DropdownMenuItem key={c.id} asChild className="rounded-none px-6 py-2.5 text-copy">
             <Link href={`/shop?category=${c.slug}`}>{c.name}</Link>
-          </DropdownMenuItem>
-        ))}
+          </DropdownMenuItem>,
+          ...c.children.map((child) => (
+            <DropdownMenuItem key={child.id} asChild className="rounded-none py-2 ps-10 pe-6 text-copy text-muted-foreground">
+              <Link href={`/shop?category=${child.slug}`}>{child.name}</Link>
+            </DropdownMenuItem>
+          )),
+        ])}
       </DropdownMenuContent>
     </DropdownMenu>
   );

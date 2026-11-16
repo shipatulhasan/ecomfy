@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { Rail, RailItem } from "@/components/shared/rail";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getCategories } from "@/lib/queries/catalog";
+import { getHomeCategories } from "@/lib/queries/catalog";
 import type { Section } from "@/lib/config/home";
 import { CategoryTile } from "../category-tile";
 import { SectionHeading } from "../section-heading";
@@ -27,7 +27,7 @@ export function PopularCategories({ section }: { section: Section }) {
 
 async function CategoryGrid() {
   await connection(); // request-time render so `next build` needs no DB; the query itself is cached
-  const categories = await getCategories();
+  const categories = await getHomeCategories();
   if (categories.length === 0) {
     return <p className="text-copy text-muted-foreground">No categories yet.</p>;
   }

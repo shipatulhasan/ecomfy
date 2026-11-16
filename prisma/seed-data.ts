@@ -54,6 +54,13 @@ export const categories = [
   { name: "Oil", slug: "oil" },
 ] as const;
 
+// Admin → Categories: a few subcategories (one level), images from product crops.
+export const subcategories = [
+  { name: "Leafy Greens", slug: "leafy-greens", parent: "fresh-vegetables", image: "green-lettuce", description: "Lettuce, cabbage, spinach and other leafy vegetables." },
+  { name: "Root Vegetables", slug: "root-vegetables", parent: "fresh-vegetables", image: "big-potatoes", description: "Potatoes, carrots, onions and other roots." },
+  { name: "Tropical Fruit", slug: "tropical-fruit", parent: "fresh-fruit", image: null, description: "" },
+] as const;
+
 // Product.description is HTML (sanitized on read, lib/rich-text.ts).
 const LOREM_DESC =
   "<p>Sed commodo aliquam dui ac porta. Fusce ipsum felis, imperdiet at posuere ac, viverra at mauris. Maecenas tincidunt ligula a sem vestibulum pharetra. Maecenas auctor tortor lacus, nec laoreet nisi porttitor vel. Etiam tincidunt metus vel dui interdum sollicitudin.</p><p>Nulla mauris tellus, feugiat quis pharetra sed, gravida ac dui. Sed iaculis, metus faucibus elementum tincidunt, turpis mi viverra velit, pellentesque tristique neque mi eget nulla.</p>";

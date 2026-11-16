@@ -71,7 +71,8 @@ function fieldErrorsOf(error: z.ZodError): Record<string, string[] | undefined> 
  *   }
  */
 export async function runAdminAction<S extends z.ZodType, T>(
-  permission: Permission,
+  /** One permission, or a list meaning "any of these" (shared uploads). */
+  permission: Permission | readonly Permission[],
   schema: S,
   input: unknown,
   fn: (data: z.infer<S>, actor: SessionUser) => Promise<T>,

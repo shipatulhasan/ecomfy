@@ -48,9 +48,10 @@ export async function requireStaff(callbackUrl = "/admin"): Promise<SessionUser>
  * staff without the permission → ActionError(FORBIDDEN) (runAction turns it into
  * `{ ok: false, error: FORBIDDEN }`). Pages check `can()` and render <Forbidden />.
  */
-export async function requirePermission(permission: Permission): Promise<SessionUser> {
+export async function requirePermission(permission: Permission | readonly Permission[]): Promise<SessionUser> {
   const user = await requireStaff();
-  if (!can(user, permission)) throw new ActionError(FORBIDDEN);
+  const any = typeof permission === "string" ? [permission] : permission; // any one of them
+  if (!any.some((p) => can(user, p))) throw new ActionError(FORBIDDEN);
   return user;
 }
 

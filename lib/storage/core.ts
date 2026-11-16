@@ -134,6 +134,7 @@ export const storageKeys = {
   tmp: (uuid: string, ext: string) => `tmp/${uuid}.${ext}`,
   library: (uuid: string, ext: string) => `media/${uuid}.${ext}`,
   product: (productId: string, uuid: string, ext: string) => `products/${productId}/${uuid}.${ext}`,
+  category: (categoryId: string, uuid: string, ext: string) => `categories/${categoryId}/${uuid}.${ext}`,
   isTmp: (key: string) => key.startsWith("tmp/"),
   /** Legacy rows (pre-storage seed) keep a site-relative "/seed/…" key. */
   isLegacy: (key: string) => key.startsWith("/"),

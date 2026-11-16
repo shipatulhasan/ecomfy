@@ -207,14 +207,28 @@ model Address {
 // ───────────────────────────── catalog ─────────────────────────────
 
 model Category {
-  id        String    @id @default(cuid())
-  name      String
-  slug      String    @unique // added: URL segment
-  imageUrl  String?
-  sortOrder Int       @default(0) // added: order of Popular Categories grid / menu
-  createdAt DateTime  @default(now()) // admin Categories "Created Date"
-  updatedAt DateTime  @updatedAt
-  products  Product[]
+  id             String     @id @default(cuid())
+  name           String
+  slug           String     @unique // added: URL segment (/shop?category=<slug>)
+  description    String     @default("") // added: admin modal (plain text)
+  /// One level of nesting: a parent is always top-level (enforced in lib/actions/admin-categories.ts).
+  parentId       String?
+  parent         Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children       Category[] @relation("CategoryTree")
+  imageId        String?
+  image          Media?     @relation(fields: [imageId], references: [id], onDelete: SetNull)
+  isActive       Boolean    @default(true) // inactive: hidden on the storefront (products stay reachable by URL)
+  isFeatured     Boolean    @default(false) // Home "Popular Categories"
+  sortOrder      Int        @default(0) // order among siblings (admin drag to reorder)
+  seoTitle       String?
+  seoDescription String?
+  createdAt      DateTime   @default(now()) // admin Categories "Created Date"
+  updatedAt      DateTime   @updatedAt
+  products       Product[]
+  slugRedirects  SlugRedirect[]
+
+  @@index([parentId, sortOrder])
+  @@index([isActive])
 }
 
 model Product {
@@ -272,14 +286,27 @@ model Product {
 }
 
 /// Old product slugs → 308 to the current one (admin slug edits).
-model SlugRedirect {
-  id        String   @id @default(cuid())
-  fromSlug  String   @unique
-  productId String
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+enum SlugKind {
+  PRODUCT
+  CATEGORY
+}
 
+/// Old slug → current row, written when an admin changes a slug. Products and
+/// categories live in separate URL spaces, so fromSlug is unique per kind.
+/// Exactly one of productId / categoryId is set (CHECK in the migration).
+model SlugRedirect {
+  id         String    @id @default(cuid())
+  kind       SlugKind  @default(PRODUCT)
+  fromSlug   String
+  productId  String?
+  product    Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+
+  @@unique([kind, fromSlug])
   @@index([productId])
+  @@index([categoryId])
 }
 
 model Variant {
@@ -325,7 +352,8 @@ model Media {
   uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
   createdAt    DateTime @default(now())
 
-  productImages ProductImage[]
+  productImages  ProductImage[]
+  categoryImages Category[]
 
   @@index([createdAt])
   @@index([originalName])

@@ -212,11 +212,11 @@ async function writeProduct(tx: Tx, productId: string, data: ProductFormData, be
   }
 
   // Slug change: the old URL keeps working (308). The new slug can't stay a redirect.
-  await tx.slugRedirect.deleteMany({ where: { fromSlug: data.slug } });
+  await tx.slugRedirect.deleteMany({ where: { kind: "PRODUCT", fromSlug: data.slug } });
   if (before && before.slug !== data.slug) {
     await tx.slugRedirect.upsert({
-      where: { fromSlug: before.slug },
-      create: { fromSlug: before.slug, productId },
+      where: { kind_fromSlug: { kind: "PRODUCT", fromSlug: before.slug } },
+      create: { kind: "PRODUCT", fromSlug: before.slug, productId },
       update: { productId },
     });
   }
@@ -440,7 +440,7 @@ export async function deleteProducts(input: unknown): Promise<ActionResult<{ arc
         const imgs = await tx.productImage.findMany({ where: { productId: { in: hard.map((r) => r.id) } }, select: { mediaId: true } });
         await tx.product.deleteMany({ where: { id: { in: hard.map((r) => r.id) } } });
         const orphans = await tx.media.findMany({
-          where: { id: { in: imgs.map((i) => i.mediaId) }, productImages: { none: {} } },
+          where: { id: { in: imgs.map((i) => i.mediaId) }, productImages: { none: {} }, categoryImages: { none: {} } },
           select: { id: true, key: true },
         });
         await tx.media.deleteMany({ where: { id: { in: orphans.map((o) => o.id) } } });
@@ -477,7 +477,7 @@ export async function createCategoryInline(input: unknown): Promise<ActionResult
       const used = new Set(taken.map((t) => t.slug));
       let slug = base;
       for (let n = 2; used.has(slug); n++) slug = `${base}-${n}`;
-      const last = await tx.category.aggregate({ _max: { sortOrder: true } });
+      const last = await tx.category.aggregate({ where: { parentId: null }, _max: { sortOrder: true } });
       const created = await tx.category.create({ data: { name, slug, sortOrder: (last._max.sortOrder ?? 0) + 1 }, select: { id: true, name: true } });
       await logAudit({ actorId: actor.id, action: "category.create", entity: "Category", entityId: created.id, after: { name, slug } }, tx);
       return created;

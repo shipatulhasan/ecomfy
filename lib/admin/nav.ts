@@ -48,7 +48,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       { label: "Order Management", href: "/admin/orders", icon: ShoppingCartIcon, permission: "orders:read", badge: "pendingOrders" },
       { label: "Customers", href: "/admin/customers", icon: UsersIcon, permission: "customers:read" },
       { label: "Coupon Code", href: "/admin/coupons", icon: TicketIcon, permission: "coupons:write" },
-      { label: "Categories", href: "/admin/categories", icon: BlendIcon, permission: "categories:write" },
+      { label: "Categories", href: "/admin/categories", icon: BlendIcon, permission: "categories:read" },
       { label: "Transaction", href: "/admin/transactions", icon: CreditCardIcon, permission: "payments:read" },
     ],
   },
