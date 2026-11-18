@@ -25,7 +25,22 @@ export type StoreSettings = {
   bkashEnabled: boolean;
   sslcommerzEnabled: boolean;
   zones: ShippingZoneRule[];
+  /** Admin order Shipping card: courier choices. */
+  couriers: string[];
+  /** Courier → tracking URL template with `{tracking}` (optional per courier). */
+  courierTrackingUrls: Record<string, string>;
+  /** DELIVERED → RETURNED allowed for this many days. */
+  returnWindowDays: number;
 };
+
+export const DEFAULT_COURIERS = ["Pathao", "Steadfast", "RedX", "Sundarban", "eCourier"];
+
+/** Tracking link from the courier's template, if one is configured. */
+export function trackingUrlFor(settings: Pick<StoreSettings, "courierTrackingUrls">, courier: string, tracking: string): string | null {
+  const template = settings.courierTrackingUrls[courier];
+  if (!template?.includes("{tracking}")) return null;
+  return template.replace("{tracking}", encodeURIComponent(tracking));
+}
 
 /** Used when the settings row is missing (fresh DB before seeding). */
 export const DEFAULT_SETTINGS: StoreSettings = {
@@ -37,6 +52,9 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   codMaxPerPhonePerDay: 3,
   bkashEnabled: true,
   sslcommerzEnabled: true,
+  couriers: DEFAULT_COURIERS,
+  courierTrackingUrls: {},
+  returnWindowDays: 7,
   zones: [
     { id: "default", name: "Standard delivery", rateCents: 12000, districts: [], isFallback: true, etaText: "3–5 days" },
   ],

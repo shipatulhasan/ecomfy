@@ -58,6 +58,7 @@ enum OrderStatus {
   CANCELLED
   EXPIRED
   FAILED
+  RETURNED // added: admin "Mark returned" (SHIPPED, or DELIVERED within Settings.returnWindowDays)
 }
 
 /// Admin Order Management "Payment" (Paid/Unpaid) + Transaction status.
@@ -122,6 +123,8 @@ model User {
   cart      Cart?
 
   auditLogs   AuditLog[]
+  orderEvents OrderStatusHistory[]
+  refunds     Refund[]
   invitesSent AdminInvite[] @relation("InvitedBy")
   media       Media[]
 
@@ -480,14 +483,33 @@ model Order {
   couponId          String?
   coupon            Coupon?              @relation(fields: [couponId], references: [id], onDelete: SetNull)
   couponCode        String? // added: snapshot in case the coupon is deleted
+  /// Admin shipping (required for SHIPPED): courier from Settings.couriers + tracking.
+  courier           String?
+  trackingNumber    String?
+  trackingUrl       String?
+  shippedAt         DateTime?
+  deliveredAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  /// Manual refunds recorded by an admin (Refund rows), in charged cents.
+  refundedCents     Int                  @default(0)
+  /// Optimistic concurrency for admin edits: every admin write bumps it and
+  /// requires the version the admin loaded (stale tab → rejected).
+  version           Int                  @default(0)
   items             OrderItem[]
   payments          Payment[]
   history           OrderStatusHistory[]
+  refunds           Refund[]
   createdAt         DateTime             @default(now()) // Order History "Date"
   updatedAt         DateTime             @updatedAt
 
   @@index([userId, createdAt])
   @@index([status, expiresAt])
+  @@index([status, createdAt])
+  @@index([paymentMethod, createdAt])
+  @@index([paymentStatus, createdAt])
+  @@index([codFlagged, createdAt])
+  @@index([district])
   @@index([phone, paymentMethod, createdAt])
   @@index([createdAt])
 }
@@ -523,16 +545,36 @@ model Payment {
 /// Every status change of an order (Order Details tracker dates). Written by checkout,
 /// the payment state machine, customer actions and the admin (lib/orders/history.ts).
 model OrderStatusHistory {
-  id        String      @id @default(cuid())
+  id        String       @id @default(cuid())
   orderId   String
-  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  status    OrderStatus
+  order     Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  /// Null for an internal staff note (no status change).
+  status    OrderStatus?
   note      String?
   /// "customer" | "admin" | "system"
-  actor     String      @default("system")
-  createdAt DateTime    @default(now())
+  actor     String       @default("system")
+  /// Staff member who made an admin change / wrote the note.
+  actorId   String?
+  actorUser User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  /// Staff-only note: never shown to the customer (lib/queries/orders.ts filters it).
+  internal  Boolean      @default(false)
+  createdAt DateTime     @default(now())
 
   @@index([orderId, createdAt])
+}
+
+/// A manual refund recorded by an admin (no gateway refund API yet).
+model Refund {
+  id          String   @id @default(cuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amountCents Int
+  note        String?
+  actorId     String?
+  actor       User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([orderId])
 }
 
 model OrderItem {
@@ -591,6 +633,11 @@ model Settings {
   bkashEnabled         Boolean  @default(true)
   sslcommerzEnabled    Boolean  @default(true)
   maxUploadMb          Int      @default(5) // admin Product Media upload limit
+  /// Admin order Shipping card: courier choices, and courier → tracking URL template ("…{tracking}").
+  couriers             String[] @default(["Pathao", "Steadfast", "RedX", "Sundarban", "eCourier"])
+  courierTrackingUrls  Json     @default("{}")
+  /// DELIVERED → RETURNED allowed for this many days after delivery.
+  returnWindowDays     Int      @default(7)
   updatedAt            DateTime @updatedAt
 }
 

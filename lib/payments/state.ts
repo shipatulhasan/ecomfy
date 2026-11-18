@@ -8,6 +8,7 @@ import { sendMail } from "@/lib/mail";
 import { formatPrice } from "@/lib/money";
 import { invalidateOrderAggregates } from "@/lib/orders/cache";
 import { recordStatus } from "@/lib/orders/history";
+import { assertTransition, canTransition } from "@/lib/orders/transitions";
 import { paymentLog, paymentWarn, type LogEntry } from "./log";
 import type { CallbackResult } from "./types";
 
@@ -76,11 +77,41 @@ export async function releaseStock(tx: Tx, orderId: string) {
 }
 
 /**
+ * COMMITTED → RELEASED (idempotent): put shipped / paid stock back, for staff
+ * cancellations of paid orders and returns. Coupon use is given back too.
+ */
+export async function restockCommitted(tx: Tx, orderId: string) {
+  const claimed = await tx.order.updateMany({
+    where: { id: orderId, stockState: "COMMITTED" },
+    data: { stockState: "RELEASED" },
+  });
+  if (claimed.count !== 1) return;
+  const order = await tx.order.findUniqueOrThrow({
+    where: { id: orderId },
+    select: { couponId: true, items: { select: { variantId: true, quantity: true } } },
+  });
+  for (const item of order.items) {
+    if (!item.variantId) continue;
+    await tx.$executeRaw`UPDATE "Variant" SET "stock" = "stock" + ${item.quantity} WHERE "id" = ${item.variantId}`;
+  }
+  if (order.couponId) {
+    await tx.$executeRaw`
+      UPDATE "Coupon" SET "usedCount" = GREATEST(0, "usedCount" - 1) WHERE "id" = ${order.couponId}`;
+  }
+}
+
+/** Give back whatever the order holds (reservation or committed stock). */
+export async function returnStock(tx: Tx, orderId: string) {
+  await releaseStock(tx, orderId);
+  await restockCommitted(tx, orderId);
+}
+
+/**
  * RESERVED → COMMITTED (decrement stock). A late success on a RELEASED order
  * (expired, then paid) takes stock directly if it's there; otherwise the order
  * is still marked paid (money must never be lost) and flagged in the logs.
  */
-async function commitStock(tx: Tx, orderId: string, tag: string): Promise<LogEntry | null> {
+export async function commitStock(tx: Tx, orderId: string, tag: string): Promise<LogEntry | null> {
   const order = await tx.order.findUniqueOrThrow({
     where: { id: orderId },
     select: { stockState: true, couponId: true, items: { select: { variantId: true, quantity: true } } },
@@ -174,7 +205,13 @@ export async function markPaid(reference: string, ids: GatewayIds, tag: string, 
   const result = await prisma.$transaction(async (tx) => {
     const payment = await tx.payment.findUnique({
       where: { reference },
-      select: { id: true, orderId: true, status: true, method: true, order: { select: { paymentStatus: true } } },
+      select: {
+        id: true,
+        orderId: true,
+        status: true,
+        method: true,
+        order: { select: { paymentStatus: true, status: true, cancelledAt: true } },
+      },
     });
     if (!payment) return { outcome: "invalid", orderId: null, reason: "Unknown transaction" } as CallbackResult;
 
@@ -190,11 +227,23 @@ export async function markPaid(reference: string, ids: GatewayIds, tag: string, 
       return { outcome: "noop", orderId: payment.orderId, paid: true } as CallbackResult;
     }
 
+    const { status, cancelledAt } = payment.order;
+    // Money is never lost, but a staff/customer cancellation is final: record the
+    // payment, keep the status, and flag it for a refund.
+    if (!canTransition(status, "PROCESSING", { actor: "system" }) || cancelledAt) {
+      await tx.order.update({
+        where: { id: payment.orderId },
+        data: { paymentStatus: "PAID", paidAt: new Date(), expiresAt: null, version: { increment: 1 } },
+      });
+      log.push(paymentWarn(tag, "paid-in-final-status", { orderId: payment.orderId, status, reference, action: "refund" }));
+      return { outcome: "noop", orderId: payment.orderId, paid: true } as CallbackResult;
+    }
+
     const stockNote = await commitStock(tx, payment.orderId, tag);
     if (stockNote) log.push(stockNote);
     await tx.order.update({
       where: { id: payment.orderId },
-      data: { status: "PROCESSING", paymentStatus: "PAID", paidAt: new Date(), expiresAt: null },
+      data: { status: "PROCESSING", paymentStatus: "PAID", paidAt: new Date(), expiresAt: null, version: { increment: 1 } },
     });
     await recordStatus(tx, payment.orderId, "PROCESSING", `Paid via ${paymentMethodMeta[payment.method].label}`);
     await clearOrderedCart(tx, payment.orderId);
@@ -230,13 +279,15 @@ export async function markFailed(
     const paid = payment.order.paymentStatus === "PAID";
     if (claimed.count !== 1) return { outcome: "noop", orderId: payment.orderId, paid } as CallbackResult;
 
+    const to = outcome === "cancelled" ? "CANCELLED" : "FAILED";
+    assertTransition("PENDING_PAYMENT", to, "system");
     const order = await tx.order.updateMany({
       where: { id: payment.orderId, paymentStatus: "UNPAID", status: "PENDING_PAYMENT" },
-      data: { status: outcome === "cancelled" ? "CANCELLED" : "FAILED", expiresAt: null },
+      data: { status: to, expiresAt: null, version: { increment: 1 } },
     });
     if (order.count === 1) {
       await releaseStock(tx, payment.orderId);
-      await recordStatus(tx, payment.orderId, outcome === "cancelled" ? "CANCELLED" : "FAILED", reason);
+      await recordStatus(tx, payment.orderId, to, reason);
     }
     return { outcome, orderId: payment.orderId, paid, reason } as CallbackResult;
   });
@@ -270,12 +321,13 @@ export async function expireStale(opts: { orderId?: string; limit?: number } = {
     select: { id: true },
     take: opts.limit ?? 100,
   });
+  assertTransition("PENDING_PAYMENT", "EXPIRED", "system");
   let expired = 0;
   for (const { id } of stale) {
     const done = await prisma.$transaction(async (tx) => {
       const n = await tx.order.updateMany({
         where: { id, status: "PENDING_PAYMENT", paymentStatus: "UNPAID" },
-        data: { status: "EXPIRED", expiresAt: null },
+        data: { status: "EXPIRED", expiresAt: null, version: { increment: 1 } },
       });
       if (n.count !== 1) return false;
       await tx.payment.updateMany({

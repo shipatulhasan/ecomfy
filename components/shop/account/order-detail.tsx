@@ -75,6 +75,20 @@ export function SummaryBox({ order, className }: { order: OrderDetail; className
     ...(order.transactionId
       ? [{ label: "Transaction ID", value: <span className="font-mono text-caption break-all">{order.transactionId}</span> }]
       : []),
+    ...(order.shipment
+      ? [
+          {
+            label: "Tracking",
+            value: order.shipment.trackingUrl ? (
+              <a href={order.shipment.trackingUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                {order.shipment.courier} · {order.shipment.trackingNumber}
+              </a>
+            ) : (
+              `${order.shipment.courier} · ${order.shipment.trackingNumber}`
+            ),
+          },
+        ]
+      : []),
     { label: "Subtotal:", value: <Money cents={order.subtotalCents} /> },
     ...(order.discountCents > 0
       ? [
@@ -210,7 +224,7 @@ function StepDot({ index, state, small = false }: { index: number; state: StepSt
   );
 }
 
-/** Cancelled / expired / failed orders: this replaces the tracker at every width. */
+/** Cancelled / expired / failed / returned orders: this replaces the tracker at every width. */
 export function OrderStatusBanner({ order, className }: { order: OrderDetail; className?: string }) {
   if (orderProgressStep(order.status) !== null) return null;
   const view = orderStatusView(order.status, order.paymentStatus, order.paymentMethod);
@@ -223,7 +237,9 @@ export function OrderStatusBanner({ order, className }: { order: OrderDetail; cl
         : "The payment didn't go through."
       : order.status === "EXPIRED"
         ? "The payment wasn't completed in time, so the items were released."
-        : "This order was cancelled and its items were released.";
+        : order.status === "RETURNED"
+          ? "This order was returned. Any refund is processed separately."
+          : "This order was cancelled and its items were released.";
   return (
     <div
       role="status"

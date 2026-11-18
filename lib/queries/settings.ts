@@ -27,6 +27,9 @@ export async function getStoreSettings(): Promise<StoreSettings> {
     codMaxPerPhonePerDay: row.codMaxPerPhonePerDay,
     bkashEnabled: row.bkashEnabled,
     sslcommerzEnabled: row.sslcommerzEnabled,
+    couriers: row.couriers.length ? row.couriers : DEFAULT_SETTINGS.couriers,
+    courierTrackingUrls: stringRecord(row.courierTrackingUrls),
+    returnWindowDays: row.returnWindowDays,
     zones: zones.length
       ? zones.map((z) => ({
           id: z.id,
@@ -38,4 +41,9 @@ export async function getStoreSettings(): Promise<StoreSettings> {
         }))
       : DEFAULT_SETTINGS.zones,
   };
+}
+
+function stringRecord(json: unknown): Record<string, string> {
+  if (!json || typeof json !== "object" || Array.isArray(json)) return {};
+  return Object.fromEntries(Object.entries(json).filter((e): e is [string, string] => typeof e[1] === "string"));
 }

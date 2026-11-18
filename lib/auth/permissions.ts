@@ -10,6 +10,7 @@ export const PERMISSIONS = [
   "dashboard:read",
   "orders:read",
   "orders:update",
+  "orders:refund", // manual refunds (ADMIN only)
   "products:read",
   "products:write",
   "categories:read",

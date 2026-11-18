@@ -5,7 +5,12 @@
  * realistic numbers. Deterministic (seeded PRNG): the same seed gives the same data,
  * apart from timestamps being relative to "now".
  *
- * Inserted with createMany in batches (orders, items, payments, history).
+ * Order Management coverage: every status × payment method (fixtures top up any
+ * combination the random spread missed), a few flagged COD phones (customers with
+ * earlier cancelled COD orders), orders with several payment attempts, courier +
+ * tracking on shipped orders, staff actors on admin steps, and manual refunds.
+ *
+ * Inserted with createMany in batches (orders, items, payments, history, refunds).
  */
 import { randomUUID } from "node:crypto";
 import type { Prisma, PrismaClient } from "../lib/generated/prisma/client";
@@ -41,7 +46,7 @@ const INSIDE_DHAKA = ["Dhaka", "Gazipur", "Narayanganj"];
 
 export async function seedDashboard(
   prisma: PrismaClient,
-  opts: { catalog: Catalog; hash: string; couponId: string; outOfStock: string[] },
+  opts: { catalog: Catalog; hash: string; couponId: string; outOfStock: string[]; adminId: string; staffId: string },
 ) {
   const rand = prng(20261115);
   const pick = <T>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)]!;
@@ -87,8 +92,180 @@ export async function seedDashboard(
   const items: Prisma.OrderItemCreateManyInput[] = [];
   const payments: Prisma.PaymentCreateManyInput[] = [];
   const history: Prisma.OrderStatusHistoryCreateManyInput[] = [];
+  const refunds: Prisma.RefundCreateManyInput[] = [];
   const reserve = new Map<string, number>();
+  /** Cancelled COD orders per phone so far (orders are generated oldest first): the checkout flag rule. */
+  const codCancelled = new Map<string, number>();
+  const staff = [opts.adminId, opts.staffId];
   let number = FIRST_NUMBER;
+
+  // A few customers who keep cancelling COD orders: their later COD orders are flagged.
+  const risky = customers.slice(0, 4);
+
+  type Who = { name: string; email: string; phone: string; district: string; userId: string | null };
+  const randomWho = (): Who => {
+    if (rand() < 0.18) {
+      const name = `${pick(FIRST)} ${pick(LAST)}`;
+      return { name, email: `guest.${number}@example.com`, phone: `017${String(int(10_000_000, 99_999_999))}`, district: pick(DISTRICTS), userId: null };
+    }
+    const c = pick(customers.slice(risky.length));
+    return { name: c.name, email: c.email, phone: c.phone, district: c.district, userId: c.id };
+  };
+  const whoOf = (c: (typeof customers)[number]): Who => ({ name: c.name, email: c.email, phone: c.phone, district: c.district, userId: c.id });
+
+  /** One order with everything that goes with its status (items, attempts, history, shipping, refunds). */
+  function add(createdAt: Date, method: Method, status: Status, who: Who, o: { retries?: number; refund?: boolean; cancelReason?: string } = {}) {
+    const ageH = (now - createdAt.getTime()) / 3_600_000;
+    const open = status === "PENDING_PAYMENT" || status === "PENDING_CONFIRMATION";
+    const paid =
+      (method !== "COD" && (status === "PROCESSING" || status === "SHIPPED" || status === "DELIVERED" || status === "RETURNED" || (status === "CANCELLED" && !!o.refund))) ||
+      (method === "COD" && (status === "DELIVERED" || status === "RETURNED"));
+    const paidAt = paid
+      ? new Date(Math.min(createdAt.getTime() + (method === "COD" ? int(30, 60) * 3_600_000 : int(1, 8) * 60_000), now - 60_000))
+      : null;
+
+    const [firstName, lastName = ""] = who.name.split(" ");
+    const address = { firstName, lastName, street: `House ${int(1, 99)}, Road ${int(1, 30)}`, city: "Sadar", district: who.district, zip: "1200", email: who.email, phone: who.phone };
+
+    const id = randomUUID();
+    const lineCount = int(1, 4);
+    const used: string[] = open ? [...opts.outOfStock] : [];
+    let subtotal = 0;
+    for (let l = 0; l < lineCount; l++) {
+      const slug = pickSlug(used);
+      used.push(slug);
+      const p = opts.catalog[slug]!;
+      const v = pick(Object.values(p.variants));
+      const quantity = open ? int(1, 2) : int(1, 5);
+      subtotal += v.priceCents * quantity;
+      items.push({
+        id: randomUUID(),
+        orderId: id,
+        variantId: v.id,
+        productName: p.name,
+        variantName: v.name,
+        imageUrl: p.image,
+        unitPriceCents: v.priceCents,
+        quantity,
+        subtotalCents: v.priceCents * quantity,
+      });
+      if (open) reserve.set(v.id, (reserve.get(v.id) ?? 0) + quantity);
+    }
+    const withCoupon = rand() < 0.1;
+    const discount = withCoupon ? Math.round(subtotal * 0.2) : 0;
+    const inside = INSIDE_DHAKA.includes(who.district);
+    const shipping = inside ? 6000 : 12000;
+    const codFee = method === "COD" ? 2000 : 0;
+    const total = subtotal - discount + shipping + codFee;
+    const orderNumber = `ECF-${String(number).padStart(6, "0")}`;
+
+    // Checkout's COD rule: phones with earlier cancelled COD orders are flagged.
+    const priorCancels = method === "COD" ? (codCancelled.get(who.phone) ?? 0) : 0;
+    if (method === "COD" && status === "CANCELLED") codCancelled.set(who.phone, priorCancels + 1);
+
+    const steps = timeline(status, method, createdAt, now, staff, pick, { cancelReason: o.cancelReason, paidBeforeCancel: status === "CANCELLED" && paid });
+    const stepAt = (s: Status) => steps.find((h) => h.status === s)?.createdAt ?? null;
+    const shipped = status === "SHIPPED" || status === "DELIVERED" || status === "RETURNED";
+    const courier = shipped ? pick(COURIERS) : null;
+    const refunded = o.refund && paid;
+
+    orders.push({
+      id,
+      number,
+      orderNumber,
+      idempotencyKey: `seed-dash-${number}`,
+      userId: who.userId,
+      email: who.email,
+      phone: who.phone,
+      billingAddress: address,
+      shippingAddress: address,
+      district: who.district,
+      status,
+      paymentStatus: refunded ? "REFUNDED" : paid ? "PAID" : status === "FAILED" ? "FAILED" : "UNPAID",
+      paymentMethod: method,
+      subtotalCents: subtotal,
+      discountCents: discount,
+      shippingCents: shipping,
+      codFeeCents: codFee,
+      totalCents: total,
+      refundedCents: refunded ? total : 0,
+      displayTotalCents: total,
+      shippingZoneName: inside ? "Inside Dhaka" : "Outside Dhaka",
+      deliveryEstimate: inside ? "1–2 days" : "3–5 days",
+      stockState: open ? "RESERVED" : status === "CANCELLED" || status === "EXPIRED" || status === "FAILED" || status === "RETURNED" ? "RELEASED" : "COMMITTED",
+      expiresAt: status === "PENDING_PAYMENT" ? new Date(now + 25 * 60_000) : null,
+      paidAt,
+      courier,
+      trackingNumber: courier ? `${courier.slice(0, 2).toUpperCase()}${number}${int(100, 999)}` : null,
+      shippedAt: stepAt("SHIPPED"),
+      deliveredAt: stepAt("DELIVERED"),
+      cancelledAt: status === "CANCELLED" ? stepAt("CANCELLED") : null,
+      cancelReason: status === "CANCELLED" ? (steps.find((h) => h.status === "CANCELLED")?.note ?? null) : null,
+      codFlagged: priorCancels > 0,
+      codFlagReason: priorCancels > 0 ? `${priorCancels} previously cancelled COD order${priorCancels === 1 ? "" : "s"}` : null,
+      couponId: withCoupon ? opts.couponId : null,
+      couponCode: withCoupon ? "ECO20" : null,
+      placedIp: "127.0.0.1",
+      createdAt,
+      updatedAt: steps.at(-1)?.createdAt ?? createdAt,
+    });
+
+    // Earlier failed / abandoned gateway attempts, then the one that decided the order.
+    const retries = method === "COD" ? 0 : (o.retries ?? 0);
+    for (let a = 1; a <= retries; a++) {
+      const at = new Date(Math.min(createdAt.getTime() + (a - 1) * 4 * 60_000, now - 120_000));
+      payments.push({
+        id: randomUUID(),
+        orderId: id,
+        method,
+        attempt: a,
+        reference: a === 1 ? orderNumber : `${orderNumber}-${a}`,
+        amountCents: total,
+        status: a % 2 ? "FAILED" : "CANCELLED",
+        failReason: a % 2 ? pick(["Insufficient balance", "Wrong PIN", "Card declined by the bank"]) : "Cancelled at the gateway",
+        trxId: null,
+        completedAt: new Date(at.getTime() + 90_000),
+        raw: [{ at: at.toISOString(), tag: method === "BKASH" ? "[bkash]" : "[sslcommerz]", event: "callback", data: { status: "failure" } }],
+        createdAt: at,
+      });
+    }
+    const last = retries + 1;
+    payments.push({
+      id: randomUUID(),
+      orderId: id,
+      method,
+      attempt: last,
+      reference: last === 1 ? orderNumber : `${orderNumber}-${last}`,
+      amountCents: total,
+      status: paid
+        ? "SUCCEEDED"
+        : status === "CANCELLED"
+          ? "CANCELLED"
+          : status === "FAILED"
+            ? "FAILED"
+            : status === "EXPIRED"
+              ? "EXPIRED"
+              : method === "COD"
+                ? "PENDING"
+                : "INITIATED",
+      trxId: paid && method === "BKASH" ? `SEED${number}` : null,
+      bankTranId: paid && method === "SSLCOMMERZ" ? `SEEDBANK${number}` : null,
+      failReason: status === "FAILED" ? "Payment declined" : null,
+      completedAt: paidAt,
+      raw: paid && method !== "COD" ? [{ at: (paidAt ?? createdAt).toISOString(), tag: method === "BKASH" ? "[bkash]" : "[sslcommerz]", event: "mark-paid:paid" }] : [],
+      createdAt: new Date(Math.min(createdAt.getTime() + retries * 4 * 60_000, now - 60_000)),
+    });
+
+    for (const h of steps) history.push({ id: randomUUID(), orderId: id, ...h });
+    if (refunded) {
+      const at = new Date(Math.min((steps.at(-1)?.createdAt ?? createdAt).getTime() + 3 * 3_600_000, now - 30_000));
+      const actorId = pick(staff);
+      refunds.push({ id: randomUUID(), orderId: id, amountCents: total, note: `Refunded via ${method === "BKASH" ? "bKash" : "bank transfer"} (seed)`, actorId, createdAt: at });
+      history.push({ id: randomUUID(), orderId: id, status: null, internal: true, actor: "admin", actorId, note: `Refunded ৳${(total / 100).toFixed(2)} (full)`, createdAt: at });
+    }
+    if (ageH < 0) throw new Error("order in the future");
+    number++;
+  }
 
   for (let day = DAYS - 1; day >= 0; day--) {
     const dayStart = now - day * DAY_MS;
@@ -98,10 +275,17 @@ export async function seedDashboard(
     const weekend = weekday === 5 || weekday === 6 ? 1.35 : 1;
     const count = Math.max(2, Math.round(base * weekend * (0.75 + rand() * 0.5)));
 
-    for (let k = 0; k < count; k++) {
-      const createdAt = new Date(Math.min(dayStart - int(0, 22 * 60) * 60_000, now - 5 * 60_000));
+    const placed: Date[] = [];
+    for (let k = 0; k < count; k++) placed.push(new Date(Math.min(dayStart - int(0, 22 * 60) * 60_000, now - 5 * 60_000)));
+    placed.sort((a, b) => a.getTime() - b.getTime());
+
+    // Risky customers: two cancelled COD orders early on, then more COD orders (flagged).
+    if (day === 75 || day === 60) for (const c of risky) add(new Date(dayStart - int(60, 600) * 60_000), "COD", "CANCELLED", whoOf(c), { cancelReason: "Customer didn't pick up the phone" });
+
+    for (const createdAt of placed) {
       const ageH = (now - createdAt.getTime()) / 3_600_000;
       const method: Method = pick(["COD", "COD", "COD", "COD", "BKASH", "BKASH", "BKASH", "SSLCOMMERZ", "SSLCOMMERZ"] as const);
+      const who = day < 40 && day % 9 === 0 && method === "COD" && rand() < 0.5 ? whoOf(pick(risky)) : randomWho();
       const r = rand();
 
       let status: Status;
@@ -109,134 +293,95 @@ export async function seedDashboard(
       else if (ageH < 30 && r < 0.45) status = method === "COD" ? "PENDING_CONFIRMATION" : "PROCESSING";
       else if (ageH < 48 && r < 0.75) status = method === "COD" && r < 0.55 ? "PENDING_CONFIRMATION" : "PROCESSING";
       else if (ageH < 96 && r < 0.6) status = "SHIPPED";
-      else if (r < 0.08) status = "CANCELLED";
+      // COD cancellations come from one-off guest phones (risky customers above), so only a few phones get flagged.
+      else if (r < 0.08 && (method !== "COD" || who.userId === null)) status = "CANCELLED";
       else if (r < 0.12 && method !== "COD") status = "EXPIRED";
       else if (r < 0.14 && method !== "COD") status = "FAILED";
+      else if (r > 0.975 && ageH > 96) status = "RETURNED";
       else status = ageH < 72 ? "SHIPPED" : "DELIVERED";
 
-      const open = status === "PENDING_PAYMENT" || status === "PENDING_CONFIRMATION";
-      const paid =
-        (method !== "COD" && (status === "PROCESSING" || status === "SHIPPED" || status === "DELIVERED")) ||
-        (method === "COD" && status === "DELIVERED");
-      const paidAt = paid
-        ? new Date(Math.min(createdAt.getTime() + (method === "COD" ? int(30, 60) * 3_600_000 : int(1, 8) * 60_000), now - 60_000))
-        : null;
-
-      const guest = rand() < 0.18;
-      const c = pick(customers);
-      const name = guest ? `${pick(FIRST)} ${pick(LAST)}` : c.name;
-      const email = guest ? `guest.${number}@example.com` : c.email;
-      const phone = guest ? `017${String(int(10_000_000, 99_999_999))}` : c.phone;
-      const district = guest ? pick(DISTRICTS) : c.district;
-      const [firstName, lastName = ""] = name.split(" ");
-      const address = { firstName, lastName, street: `House ${int(1, 99)}, Road ${int(1, 30)}`, city: "Sadar", district, zip: "1200", email, phone };
-
-      const id = randomUUID();
-      const lineCount = int(1, 4);
-      const used: string[] = open ? [...opts.outOfStock] : [];
-      let subtotal = 0;
-      for (let l = 0; l < lineCount; l++) {
-        const slug = pickSlug(used);
-        used.push(slug);
-        const p = opts.catalog[slug]!;
-        const v = pick(Object.values(p.variants));
-        const quantity = open ? int(1, 2) : int(1, 5);
-        subtotal += v.priceCents * quantity;
-        items.push({
-          id: randomUUID(),
-          orderId: id,
-          variantId: v.id,
-          productName: p.name,
-          variantName: v.name,
-          imageUrl: p.image,
-          unitPriceCents: v.priceCents,
-          quantity,
-          subtotalCents: v.priceCents * quantity,
-        });
-        if (open) reserve.set(v.id, (reserve.get(v.id) ?? 0) + quantity);
-      }
-      const withCoupon = rand() < 0.1;
-      const discount = withCoupon ? Math.round(subtotal * 0.2) : 0;
-      const inside = INSIDE_DHAKA.includes(district);
-      const shipping = inside ? 6000 : 12000;
-      const codFee = method === "COD" ? 2000 : 0;
-      const total = subtotal - discount + shipping + codFee;
-      const orderNumber = `ECF-${String(number).padStart(6, "0")}`;
-
-      orders.push({
-        id,
-        number,
-        orderNumber,
-        idempotencyKey: `seed-dash-${number}`,
-        userId: guest ? null : c.id,
-        email,
-        phone,
-        billingAddress: address,
-        shippingAddress: address,
-        district,
-        status,
-        paymentStatus: paid ? "PAID" : status === "FAILED" ? "FAILED" : "UNPAID",
-        paymentMethod: method,
-        subtotalCents: subtotal,
-        discountCents: discount,
-        shippingCents: shipping,
-        codFeeCents: codFee,
-        totalCents: total,
-        displayTotalCents: total,
-        shippingZoneName: inside ? "Inside Dhaka" : "Outside Dhaka",
-        deliveryEstimate: inside ? "1–2 days" : "3–5 days",
-        stockState: open ? "RESERVED" : status === "CANCELLED" || status === "EXPIRED" || status === "FAILED" ? "RELEASED" : "COMMITTED",
-        expiresAt: status === "PENDING_PAYMENT" ? new Date(now + 25 * 60_000) : null,
-        paidAt,
-        couponId: withCoupon ? opts.couponId : null,
-        couponCode: withCoupon ? "ECO20" : null,
-        placedIp: "127.0.0.1",
-        createdAt,
-        updatedAt: paidAt ?? createdAt,
-      });
-      payments.push({
-        id: randomUUID(),
-        orderId: id,
-        method,
-        attempt: 1,
-        reference: orderNumber,
-        amountCents: total,
-        status: paid
-          ? "SUCCEEDED"
-          : status === "CANCELLED"
-            ? "CANCELLED"
-            : status === "FAILED"
-              ? "FAILED"
-              : status === "EXPIRED"
-                ? "EXPIRED"
-                : method === "COD"
-                  ? "PENDING"
-                  : "INITIATED",
-        trxId: paid && method === "BKASH" ? `SEED${number}` : null,
-        bankTranId: paid && method === "SSLCOMMERZ" ? `SEEDBANK${number}` : null,
-        completedAt: paidAt,
-        createdAt,
-      });
-      for (const h of timeline(status, method, createdAt, now)) history.push({ id: randomUUID(), orderId: id, ...h });
-      number++;
+      const retries = method !== "COD" && rand() < 0.06 ? int(1, 2) : 0;
+      // Paid online orders that were cancelled or returned were refunded in full.
+      const refund = method !== "COD" && (status === "RETURNED" || (status === "CANCELLED" && rand() < 0.3));
+      add(createdAt, method, status, who, { retries, refund });
     }
   }
+
+  // Fixtures: every status × payment method exists at least twice (recent, so the
+  // tabs and filters have something to show), including multi-attempt payments.
+  const have = new Map<string, number>();
+  for (const o of orders) have.set(`${o.status}:${o.paymentMethod}`, (have.get(`${o.status}:${o.paymentMethod}`) ?? 0) + 1);
+  const COMBOS: [Status, Method[]][] = [
+    ["PENDING_PAYMENT", ["BKASH", "SSLCOMMERZ"]],
+    ["PENDING_CONFIRMATION", ["COD"]],
+    ["PROCESSING", ["COD", "BKASH", "SSLCOMMERZ"]],
+    ["SHIPPED", ["COD", "BKASH", "SSLCOMMERZ"]],
+    ["DELIVERED", ["COD", "BKASH", "SSLCOMMERZ"]],
+    ["CANCELLED", ["COD", "BKASH", "SSLCOMMERZ"]],
+    ["EXPIRED", ["BKASH", "SSLCOMMERZ"]],
+    ["FAILED", ["BKASH", "SSLCOMMERZ"]],
+    ["RETURNED", ["COD", "BKASH", "SSLCOMMERZ"]],
+  ];
+  const AGE_MIN: Record<Status, number> = {
+    PENDING_PAYMENT: 8,
+    PENDING_CONFIRMATION: 90,
+    PROCESSING: 6 * 60,
+    SHIPPED: 30 * 60,
+    DELIVERED: 4 * 24 * 60,
+    CANCELLED: 2 * 24 * 60,
+    EXPIRED: 26 * 60,
+    FAILED: 20 * 60,
+    RETURNED: 5 * 24 * 60,
+  };
+  for (const [status, methods] of COMBOS) {
+    for (const method of methods) {
+      for (let n = have.get(`${status}:${method}`) ?? 0; n < 2; n++) {
+        const createdAt = new Date(now - (AGE_MIN[status] + int(0, 60)) * 60_000);
+        add(createdAt, method, status, method === "COD" && status === "CANCELLED" ? { ...randomWho(), userId: null, email: `guest.${number}@example.com` } : randomWho(), {
+          retries: method === "COD" ? 0 : n === 0 && (status === "PROCESSING" || status === "FAILED") ? 2 : 0,
+          refund: method !== "COD" && (status === "RETURNED" || (status === "CANCELLED" && n === 0)),
+        });
+      }
+    }
+  }
+  // Flagged COD orders waiting for confirmation right now (risky phones).
+  for (const c of risky.slice(0, 2)) add(new Date(now - int(20, 200) * 60_000), "COD", "PENDING_CONFIRMATION", whoOf(c));
 
   const chunk = <T>(xs: T[], n = 500) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
   for (const c of chunk(orders)) await prisma.order.createMany({ data: c });
   for (const c of chunk(items)) await prisma.orderItem.createMany({ data: c });
   for (const c of chunk(payments)) await prisma.payment.createMany({ data: c });
   for (const c of chunk(history, 1000)) await prisma.orderStatusHistory.createMany({ data: c });
+  if (refunds.length) await prisma.refund.createMany({ data: refunds });
   for (const [variantId, qty] of reserve) {
     await prisma.variant.update({ where: { id: variantId }, data: { reserved: { increment: qty } } });
   }
-  return { customers: customers.length, orders: orders.length };
+  return {
+    customers: customers.length,
+    orders: orders.length,
+    flagged: orders.filter((o) => o.codFlagged).length,
+    multiAttempt: new Set(payments.filter((p) => p.attempt > 1).map((p) => p.orderId)).size,
+    refunds: refunds.length,
+  };
 }
 
-function timeline(status: Status, method: Method, placed: Date, now: number) {
+const COURIERS = ["Pathao", "Steadfast", "RedX", "Sundarban", "eCourier"];
+const CUSTOMER_CANCEL = ["Changed my mind", "Ordered by mistake", "Found a better price"];
+const STAFF_CANCEL = ["Customer asked to cancel", "Couldn't reach the customer", "Out of stock"];
+
+function timeline(
+  status: Status,
+  method: Method,
+  placed: Date,
+  now: number,
+  staff: string[],
+  pick: <T>(xs: readonly T[]) => T,
+  { cancelReason, paidBeforeCancel }: { cancelReason?: string; paidBeforeCancel?: boolean } = {},
+) {
   const at = (min: number) => new Date(Math.min(placed.getTime() + min * 60_000, now));
   const cod = method === "COD";
-  const rows: { status: Status; note: string; actor: string; createdAt: Date }[] = [
+  const admin = () => ({ actor: "admin", actorId: pick(staff) });
+  const rows: { status: Status; note: string; actor: string; actorId?: string | null; createdAt: Date }[] = [
     {
       status: cod ? "PENDING_CONFIRMATION" : "PENDING_PAYMENT",
       note: cod ? "Placed with Cash on Delivery" : "Placed, waiting for payment",
@@ -244,11 +389,22 @@ function timeline(status: Status, method: Method, placed: Date, now: number) {
       createdAt: at(0),
     },
   ];
-  const step = (["PROCESSING", "SHIPPED", "DELIVERED"] as const).indexOf(status as "PROCESSING");
-  if (step >= 0) rows.push({ status: "PROCESSING", note: cod ? "Confirmed by the store" : "Paid online", actor: cod ? "admin" : "system", createdAt: at(90) });
-  if (step >= 1) rows.push({ status: "SHIPPED", note: "Handed to the courier", actor: "admin", createdAt: at(20 * 60) });
-  if (step >= 2) rows.push({ status: "DELIVERED", note: cod ? "Delivered, paid in cash" : "Delivered", actor: "admin", createdAt: at(44 * 60) });
-  if (status === "CANCELLED") rows.push({ status, note: "Cancelled by customer", actor: "customer", createdAt: at(120) });
+  const step = (["PROCESSING", "SHIPPED", "DELIVERED", "RETURNED"] as const).indexOf(status as "PROCESSING");
+  if (step >= 0) rows.push({ status: "PROCESSING", note: cod ? "Order confirmed" : "Paid online", ...(cod ? admin() : { actor: "system" }), createdAt: at(90) });
+  if (step >= 1) rows.push({ status: "SHIPPED", note: "Handed to the courier", ...admin(), createdAt: at(20 * 60) });
+  if (step >= 2) rows.push({ status: "DELIVERED", note: cod ? "Delivered · cash collected" : "Delivered", ...admin(), createdAt: at(44 * 60) });
+  if (step >= 3) rows.push({ status: "RETURNED", note: "Returned: damaged on arrival", ...admin(), createdAt: at(68 * 60) });
+  if (status === "CANCELLED") {
+    // Pending orders: the customer cancels; paid online orders: staff cancel them.
+    if (paidBeforeCancel) {
+      rows.push({ status: "PROCESSING", note: "Paid online", actor: "system", createdAt: at(5) });
+      rows.push({ status, note: cancelReason ?? pick(STAFF_CANCEL), ...admin(), createdAt: at(240) });
+    } else if (cancelReason || cod || pick([true, false])) {
+      rows.push({ status, note: cancelReason ?? pick(STAFF_CANCEL), ...admin(), createdAt: at(120) });
+    } else {
+      rows.push({ status, note: pick(CUSTOMER_CANCEL), actor: "customer", createdAt: at(120) });
+    }
+  }
   if (status === "FAILED") rows.push({ status, note: "Payment declined", actor: "system", createdAt: at(8) });
   if (status === "EXPIRED") rows.push({ status, note: "Unpaid after 30 minutes", actor: "system", createdAt: at(30) });
   return rows;

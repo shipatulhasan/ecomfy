@@ -24,6 +24,7 @@ import {
   StockError,
 } from "@/lib/payments/state";
 import { getCart } from "@/lib/queries/cart";
+import { canTransition } from "@/lib/orders/transitions";
 import { getStoreSettings } from "@/lib/queries/settings";
 import { clientIp, consume } from "@/lib/rate-limit";
 import { checkoutSchema, quoteSchema, retryPaymentSchema } from "@/lib/validations/checkout";
@@ -278,6 +279,7 @@ export async function retryPayment(input: unknown): Promise<ActionResult<PlaceOr
         userId: true,
         status: true,
         paymentStatus: true,
+        cancelledAt: true,
         phone: true,
         district: true,
         subtotalCents: true,
@@ -289,7 +291,13 @@ export async function retryPayment(input: unknown): Promise<ActionResult<PlaceOr
     if (!order || !(await canAccessOrder(order))) throw new ActionError("We couldn't find that order.");
     if (order.paymentStatus === "PAID") return { kind: "navigate", href: successHref(order.id) } as const;
     const retryable = ["FAILED", "CANCELLED", "EXPIRED", "PENDING_PAYMENT"] as const;
-    if (!(retryable as readonly string[]).includes(order.status)) {
+    const target = method === "COD" ? "PENDING_CONFIRMATION" : "PENDING_PAYMENT";
+    // Staff / customer cancellations are final (cancelledAt); gateway cancels can be retried.
+    if (
+      !(retryable as readonly string[]).includes(order.status) ||
+      order.cancelledAt !== null ||
+      !canTransition(order.status, target, { actor: "customer" })
+    ) {
       return { kind: "navigate", href: successHref(order.id) } as const;
     }
 
@@ -310,14 +318,15 @@ export async function retryPayment(input: unknown): Promise<ActionResult<PlaceOr
     try {
       attempt = await prisma.$transaction(async (tx) => {
         const claimed = await tx.order.updateMany({
-          where: { id: order.id, paymentStatus: "UNPAID", status: { in: [...retryable] } },
+          where: { id: order.id, paymentStatus: "UNPAID", cancelledAt: null, status: { in: [...retryable] } },
           data: {
+            version: { increment: 1 },
             paymentMethod: method,
             codFeeCents,
             totalCents,
             fxRate: display === "USD" ? rate : 1,
             displayTotalCents: toDisplayCents(totalCents, display, rate),
-            status: method === "COD" ? "PENDING_CONFIRMATION" : "PENDING_PAYMENT",
+            status: target,
             expiresAt: method === "COD" ? null : pendingPaymentDeadline(),
             ...flags,
           },
@@ -326,7 +335,7 @@ export async function retryPayment(input: unknown): Promise<ActionResult<PlaceOr
         await recordStatus(
           tx,
           order.id,
-          method === "COD" ? "PENDING_CONFIRMATION" : "PENDING_PAYMENT",
+          target,
           `Payment retried with ${paymentMethodMeta[method].label}`,
           "customer",
         );

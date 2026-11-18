@@ -38,8 +38,37 @@ export function orderStatusView(
       return { label: "Expired", tone: "neutral" };
     case "FAILED":
       return { label: "Payment failed", tone: "danger" };
+    case "RETURNED":
+      return { label: "Returned", tone: "neutral" };
   }
 }
+
+/**
+ * Admin wording of an order status (Order Management.png: "Pending", "Shipped",
+ * "Delivered", "Cancelled"). Same tones as the customer view.
+ */
+export const ADMIN_STATUS_LABELS: Record<OrderStatus, string> = {
+  PENDING_PAYMENT: "Awaiting payment",
+  PENDING_CONFIRMATION: "To confirm",
+  PROCESSING: "Processing",
+  SHIPPED: "Shipped",
+  DELIVERED: "Delivered",
+  CANCELLED: "Cancelled",
+  EXPIRED: "Expired",
+  FAILED: "Payment failed",
+  RETURNED: "Returned",
+};
+
+export function adminStatusView(status: OrderStatus, paymentStatus: PaymentStatus, method: PaymentMethod): OrderStatusView {
+  return { label: ADMIN_STATUS_LABELS[status], tone: orderStatusView(status, paymentStatus, method).tone };
+}
+
+export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
+  UNPAID: "Unpaid",
+  PAID: "Paid",
+  FAILED: "Failed",
+  REFUNDED: "Refunded",
+};
 
 /**
  * Payment line shown next to the order status (summary card, invoice, cards):
@@ -71,7 +100,7 @@ export const ORDER_STEPS = [
 ] as const satisfies readonly { label: string; reachedBy: readonly OrderStatus[] }[];
 
 /** Orders that left the flow: a banner replaces the tracker. */
-export const isClosedStatus = (s: OrderStatus) => s === "CANCELLED" || s === "EXPIRED" || s === "FAILED";
+export const isClosedStatus = (s: OrderStatus) => s === "CANCELLED" || s === "EXPIRED" || s === "FAILED" || s === "RETURNED";
 
 /** Statuses a customer may cancel from (lib/actions/orders.ts → cancelOrder). */
 export const CANCELLABLE_STATUSES = ["PENDING_PAYMENT", "PENDING_CONFIRMATION"] as const satisfies readonly OrderStatus[];

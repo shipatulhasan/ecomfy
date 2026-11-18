@@ -16,6 +16,15 @@ export async function recordStatus(
   status: OrderStatus,
   note: string | null = null,
   actor: StatusActor = "system",
+  actorId: string | null = null,
 ) {
-  await tx.orderStatusHistory.create({ data: { orderId, status, note, actor } });
+  await tx.orderStatusHistory.create({ data: { orderId, status, note, actor, actorId } });
+}
+
+/** Staff-only note on the order timeline (never shown to the customer). */
+export async function recordInternalNote(tx: Prisma.TransactionClient, orderId: string, note: string, actorId: string) {
+  return tx.orderStatusHistory.create({
+    data: { orderId, status: null, note, actor: "admin", actorId, internal: true },
+    select: { id: true },
+  });
 }

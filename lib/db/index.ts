@@ -1,13 +1,14 @@
 import "server-only";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/lib/generated/prisma/client";
+import { pgConnectionString } from "./url";
 
 // Runtime uses the pooled DATABASE_URL (Neon "-pooler" host). Migrations use
 // DIRECT_URL via prisma.config.ts. Not validated at import time so `next build`
 // works without a database; the first query fails clearly if it is missing.
 function createClient() {
   return new PrismaClient({
-    adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+    adapter: new PrismaPg({ connectionString: pgConnectionString(process.env.DATABASE_URL) }),
   });
 }
 

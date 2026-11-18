@@ -139,6 +139,8 @@ export type OrderDetail = {
   codFeeCents: number;
   totalCents: number;
   couponCode: string | null;
+  /** Courier + tracking once an admin ships the order. */
+  shipment: { courier: string; trackingNumber: string; trackingUrl: string | null } | null;
   history: OrderHistoryEntry[];
   /** Per tracker step (ORDER_STEPS), when it was first reached; null if not (or unknown). */
   stepDates: (Date | null)[];
@@ -180,7 +182,15 @@ export async function getUserOrder(userId: string, number: number): Promise<Orde
       codFeeCents: true,
       totalCents: true,
       couponCode: true,
-      history: { orderBy: { createdAt: "asc" }, select: { status: true, note: true, createdAt: true } },
+      courier: true,
+      trackingNumber: true,
+      trackingUrl: true,
+      // Status changes only: staff-internal notes never reach the customer.
+      history: {
+        where: { internal: false, status: { not: null } },
+        orderBy: { createdAt: "asc" },
+        select: { status: true, note: true, createdAt: true },
+      },
       payments: {
         where: { status: "SUCCEEDED" },
         orderBy: { attempt: "desc" },
@@ -233,9 +243,11 @@ export async function getUserOrder(userId: string, number: number): Promise<Orde
     codFeeCents: o.codFeeCents,
     totalCents: o.totalCents,
     couponCode: o.couponCode,
-    history: o.history,
+    shipment:
+      o.courier && o.trackingNumber ? { courier: o.courier, trackingNumber: o.trackingNumber, trackingUrl: o.trackingUrl } : null,
+    history: o.history.flatMap((h) => (h.status ? [{ ...h, status: h.status }] : [])),
     stepDates: ORDER_STEPS.map((step, i) => {
-      const hit = o.history.find((h) => (step.reachedBy as readonly OrderStatus[]).includes(h.status));
+      const hit = o.history.find((h) => (step.reachedBy as readonly OrderStatus[]).includes(h.status!));
       return hit?.createdAt ?? (i === 0 ? o.createdAt : null);
     }),
     actions: {
@@ -248,7 +260,7 @@ export async function getUserOrder(userId: string, number: number): Promise<Orde
   };
 }
 
-function parseAddress(json: unknown): AddressSnapshot | null {
+export function parseAddress(json: unknown): AddressSnapshot | null {
   if (!json || typeof json !== "object") return null;
   const a = json as Record<string, unknown>;
   const str = (k: string) => (typeof a[k] === "string" ? (a[k] as string).trim() : "");

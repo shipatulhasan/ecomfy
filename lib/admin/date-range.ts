@@ -41,8 +41,8 @@ export function dhakaMidnight(dateKey: string): Date {
   return new Date(Date.UTC(y, m - 1, d) - DHAKA_OFFSET_MS);
 }
 
-const addDays = (dateKey: string, n: number) => dhakaDateKey(+dhakaMidnight(dateKey) + n * DAY_MS);
-const isDateKey = (v: unknown): v is string =>
+export const addDays = (dateKey: string, n: number) => dhakaDateKey(+dhakaMidnight(dateKey) + n * DAY_MS);
+export const isDateKey = (v: unknown): v is string =>
   typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(+dhakaMidnight(v)) && dhakaDateKey(dhakaMidnight(v)) === v;
 
 type Params = Record<string, string | string[] | undefined>;

@@ -1,10 +1,10 @@
 import { StatusChip } from "@/components/shared/status-chip";
 import type { OrderStatus, PaymentMethod, PaymentStatus } from "@/lib/generated/prisma/enums";
-import { orderStatusView, paymentStatusView } from "@/lib/orders/status";
+import { adminStatusView, orderStatusView, paymentStatusView } from "@/lib/orders/status";
 
 /**
  * The one order-status pill (account dashboard, Order History, Order Details,
- * later the admin). Labels and tones come from lib/orders/status.ts.
+ * the admin order detail). Labels and tones come from lib/orders/status.ts.
  */
 type OrderBadgeProps = {
   status: OrderStatus;
@@ -13,8 +13,9 @@ type OrderBadgeProps = {
   className?: string;
 };
 
-export function OrderStatusBadge({ status, paymentStatus, method, className }: OrderBadgeProps) {
-  const v = orderStatusView(status, paymentStatus, method);
+/** `variant="admin"`: Order Management wording ("Shipped", "Delivered", "To confirm"). */
+export function OrderStatusBadge({ status, paymentStatus, method, className, variant = "customer" }: OrderBadgeProps & { variant?: "customer" | "admin" }) {
+  const v = (variant === "admin" ? adminStatusView : orderStatusView)(status, paymentStatus, method);
   return (
     <StatusChip tone={v.tone} className={className}>
       {v.label}

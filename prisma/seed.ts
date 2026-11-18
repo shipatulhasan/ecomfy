@@ -20,6 +20,7 @@ import sharp from "sharp";
 import { PrismaClient, type Prisma } from "../lib/generated/prisma/client";
 import { derivePrice, UNLIMITED_STOCK } from "../lib/admin/products/rules";
 import { neonStorage, storageKeys } from "../lib/storage/core";
+import { pgConnectionString } from "../lib/db/url";
 import { hashInviteToken, inviteExpiry, inviteUrl, newInviteToken } from "../lib/admin/invites";
 import { seedDashboard } from "./seed-dashboard";
 import { categories, subcategories, chineseCabbageReviews, products, REVIEW_BODIES, slugify, type SeedProduct, type SeedVariant } from "./seed-data";
@@ -28,7 +29,7 @@ if (process.env.NODE_ENV === "production") {
   throw new Error("Refusing to seed a production database.");
 }
 
-const connectionString = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+const connectionString = pgConnectionString(process.env.DIRECT_URL ?? process.env.DATABASE_URL);
 if (!connectionString) throw new Error("Set DATABASE_URL (and DIRECT_URL) in .env first.");
 // Admin / staff accounts use SEED_PASSWORD; every customer account uses CUSTOMER_PASSWORD.
 const password = process.env.SEED_PASSWORD;
@@ -664,6 +665,8 @@ async function main() {
     hash: await hashPassword(customerPassword!),
     couponId: coupon.id,
     outOfStock: ["surjapuri-mango", "red-chili"],
+    adminId: u.admin!,
+    staffId: u.staff!,
   });
   await prisma.$executeRawUnsafe(
     `SELECT setval(pg_get_serial_sequence('"Order"', 'number'), (SELECT MAX("number") FROM "Order"))`,
@@ -731,7 +734,9 @@ async function main() {
   }
 
   const orderCount = await prisma.order.count();
-  console.log(`✔ dashboard: ${dash.customers} customers, ${dash.orders} orders over 90 days, 3 draft products, Red Chili out of stock`);
+  console.log(
+    `✔ dashboard: ${dash.customers} customers, ${dash.orders} orders over 90 days (${dash.flagged} flagged COD, ${dash.multiAttempt} with retried payments, ${dash.refunds} refunds), 3 draft products, Red Chili out of stock`,
+  );
   console.log(`✔ ${orderCount} orders, 1 cart (4 lines), 4 wishlist items, ${chineseCabbageReviews.length + extra.length} reviews, coupons ECO20 / EXPIRED10 / BIG50`);
   console.log(`✔ settings (COD ৳20 fee, ৳20,000 max, no COD in ${noCod.join(" / ")}), zones Inside Dhaka ৳60 / Outside Dhaka ৳120`);
   console.log("\nDemo accounts (passwords come from .env, not printed):");

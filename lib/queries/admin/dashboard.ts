@@ -25,7 +25,7 @@ import type { OrderStatus, PaymentMethod, PaymentStatus } from "@/lib/generated/
  */
 const LIFE = { stale: 60, revalidate: 120, expire: 300 } as const;
 const NOT_PLACED: OrderStatus[] = ["EXPIRED", "FAILED"];
-const NOT_SOLD: OrderStatus[] = ["CANCELLED", "EXPIRED", "FAILED"];
+const NOT_SOLD: OrderStatus[] = ["CANCELLED", "EXPIRED", "FAILED", "RETURNED"];
 
 const ts = (iso: string) => Prisma.sql`${iso}::timestamp`;
 /** Dhaka calendar day of a timestamp(3) column holding UTC. */

@@ -7,8 +7,10 @@ import { resolveCartOwner } from "@/lib/cart/owner";
 import type { CartView } from "@/lib/cart/pricing";
 import { prisma } from "@/lib/db";
 import { invalidateOrderAggregates } from "@/lib/orders/cache";
+import { queueOrderEmail } from "@/lib/orders/emails";
 import { recordStatus } from "@/lib/orders/history";
 import { CANCELLABLE_STATUSES } from "@/lib/orders/status";
+import { canTransition } from "@/lib/orders/transitions";
 import { releaseStock } from "@/lib/payments/state";
 import { getCart } from "@/lib/queries/cart";
 import { consume, type Rule } from "@/lib/rate-limit";
@@ -45,14 +47,32 @@ export async function cancelOrder(input: unknown): Promise<ActionResult<{ number
     const user = await requireUser();
     await limit(`order-cancel:${user.id}`, CANCEL_LIMIT);
 
-    const order = await prisma.order.findFirst({ where: { number: orderNumber, userId: user.id }, select: { id: true } });
+    const order = await prisma.order.findFirst({
+      where: { number: orderNumber, userId: user.id },
+      select: { id: true, status: true, version: true },
+    });
     if (!order) throw new ActionError(NOT_FOUND);
+    if (!canTransition(order.status, "CANCELLED", { actor: "customer" })) {
+      throw new ActionError("This order can no longer be cancelled.");
+    }
 
     await prisma.$transaction(async (tx) => {
-      // Conditional: a gateway callback that paid it a moment ago wins.
+      // Conditional: a gateway callback that paid it (or staff that confirmed it) a moment ago wins.
       const claimed = await tx.order.updateMany({
-        where: { id: order.id, userId: user.id, paymentStatus: "UNPAID", status: { in: [...CANCELLABLE_STATUSES] } },
-        data: { status: "CANCELLED", expiresAt: null },
+        where: {
+          id: order.id,
+          userId: user.id,
+          version: order.version,
+          paymentStatus: "UNPAID",
+          status: { in: [...CANCELLABLE_STATUSES] },
+        },
+        data: {
+          status: "CANCELLED",
+          expiresAt: null,
+          cancelledAt: new Date(),
+          cancelReason: "Cancelled by customer",
+          version: { increment: 1 },
+        },
       });
       if (claimed.count !== 1) throw new ActionError("This order can no longer be cancelled.");
       await tx.payment.updateMany({
@@ -64,6 +84,7 @@ export async function cancelOrder(input: unknown): Promise<ActionResult<{ number
     });
 
     invalidateOrderAggregates();
+    queueOrderEmail(order.id, "cancelled");
     refresh();
     return { number: orderNumber };
   });
