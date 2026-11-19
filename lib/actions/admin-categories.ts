@@ -22,7 +22,7 @@ import { ActionError, type ActionResult } from "./result";
 import { runAdminAction } from "./safe-action";
 
 /**
- * Admin → Categories mutations. Each one re-checks `categories:write`
+ * Admin → Categories mutations. Each one re-checks `categories:create|update|delete`
  * (runAdminAction: authorize, then validate with the same zod schema as the
  * modal), runs in one transaction with an audit entry, then expires the
  * storefront's category + product caches with updateTag() so the header menu,
@@ -72,12 +72,12 @@ async function freeSlug(base: string, excludeId?: string, db: Tx | typeof prisma
 
 /** Modal → Save (new category). */
 export async function createCategory(input: unknown): Promise<ActionResult<AdminCategoryRow>> {
-  return runAdminAction("categories:write", categoryFormSchema, input, (data, actor) => saveCategory({ ...data, id: undefined }, actor.id));
+  return runAdminAction("categories:create", categoryFormSchema, input, (data, actor) => saveCategory({ ...data, id: undefined }, actor.id));
 }
 
 /** Modal → Save (edit). A slug change leaves a CATEGORY SlugRedirect (old Shop URL → 308). */
 export async function updateCategory(input: unknown): Promise<ActionResult<AdminCategoryRow>> {
-  return runAdminAction("categories:write", categoryFormSchema, input, (data, actor) => {
+  return runAdminAction("categories:update", categoryFormSchema, input, (data, actor) => {
     if (!data.id) throw new ActionError("Missing category id.");
     return saveCategory(data, actor.id);
   });
@@ -185,7 +185,7 @@ async function saveCategory(data: CategoryFormData, actorId: string): Promise<Ad
 
 /** Slug field blur: is it free? (Saving re-checks.) */
 export async function checkCategorySlug(input: unknown): Promise<ActionResult<{ available: boolean; suggestion: string }>> {
-  return runAdminAction("categories:write", checkCategorySlugSchema, input, async ({ slug, excludeId }) => {
+  return runAdminAction(["categories:create", "categories:update"], checkCategorySlugSchema, input, async ({ slug, excludeId }) => {
     const taken = await prisma.category.findFirst({ where: { slug, ...(excludeId && { id: { not: excludeId } }) }, select: { id: true } });
     return { available: !taken, suggestion: taken ? await freeSlug(slug, excludeId) : slug };
   });
@@ -195,7 +195,7 @@ export async function checkCategorySlug(input: unknown): Promise<ActionResult<{ 
 
 /** Row "⋯" / bulk bar → Activate / Deactivate, Feature on home / Remove from home. */
 export async function toggleCategory(input: unknown): Promise<ActionResult<{ updated: number }>> {
-  return runAdminAction("categories:write", toggleCategorySchema, input, async ({ ids, field, value }, actor) => {
+  return runAdminAction("categories:update", toggleCategorySchema, input, async ({ ids, field, value }, actor) => {
     const rows = await prisma.$transaction(async (tx) => {
       const before = await tx.category.findMany({ where: { id: { in: ids } }, select: { id: true, slug: true, isActive: true, isFeatured: true } });
       if (before.length === 0) throw new ActionError("These categories no longer exist.");
@@ -227,7 +227,7 @@ export async function toggleCategory(input: unknown): Promise<ActionResult<{ upd
  * they held among all siblings, so rows on other pages keep their place.
  */
 export async function reorderCategories(input: unknown): Promise<ActionResult<{ updated: number }>> {
-  return runAdminAction("categories:write", reorderCategoriesSchema, input, async ({ parentId, ids }, actor) => {
+  return runAdminAction("categories:update", reorderCategoriesSchema, input, async ({ parentId, ids }, actor) => {
     if (new Set(ids).size !== ids.length) throw new ActionError("Duplicate ids.");
     const updated = await prisma.$transaction(async (tx) => {
       const siblings = await tx.category.findMany({
@@ -272,7 +272,7 @@ export type CategoryDeleteInfo = {
 
 /** Delete dialog: what blocks the delete, and where products can go. */
 export async function getCategoryDeleteInfo(input: unknown): Promise<ActionResult<CategoryDeleteInfo>> {
-  return runAdminAction("categories:write", categoryIdSchema, input, async ({ id }) => {
+  return runAdminAction("categories:delete", categoryIdSchema, input, async ({ id }) => {
     const [row, others] = await Promise.all([
       prisma.category.findUnique({
         where: { id },
@@ -301,7 +301,7 @@ export async function getCategoryDeleteInfo(input: unknown): Promise<ActionResul
  * no product is ever left without a category.
  */
 export async function deleteCategory(input: unknown): Promise<ActionResult<{ id: string; moved: number }>> {
-  return runAdminAction("categories:write", deleteCategorySchema, input, async ({ id, moveProductsTo }, actor) => {
+  return runAdminAction("categories:delete", deleteCategorySchema, input, async ({ id, moveProductsTo }, actor) => {
     const row = await prisma.category.findUnique({
       where: { id },
       select: { ...auditSelect, _count: { select: { products: true, children: true } } },

@@ -36,7 +36,19 @@ export async function clientIp(): Promise<string> {
   return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
 }
 
-export type AuthAction = "sign-in" | "sign-up" | "reset" | "verify" | "admin-sign-in" | "admin-reset" | "admin-invite" | "admin-search";
+export type AuthAction =
+  | "sign-in"
+  | "sign-up"
+  | "reset"
+  | "verify"
+  | "admin-sign-in"
+  | "admin-reset"
+  | "admin-invite"
+  | "admin-invite-send"
+  | "admin-search"
+  | "password-change"
+  | "two-factor"
+  | "email-change";
 
 /** Per IP + email, and per IP overall (stops one IP spraying many emails). */
 const limits: Record<AuthAction, { perEmail: Rule; perIp: Rule }> = {
@@ -49,6 +61,13 @@ const limits: Record<AuthAction, { perEmail: Rule; perIp: Rule }> = {
   "admin-reset": { perEmail: { window: 60 * 60, max: 2 }, perIp: { window: 60 * 60, max: 5 } },
   // Invite acceptance: keyed by token hash prefix instead of email.
   "admin-invite": { perEmail: { window: 15 * 60, max: 5 }, perIp: { window: 15 * 60, max: 10 } },
+  // Control Authority → Add member / Resend, keyed by the inviting admin's id.
+  "admin-invite-send": { perEmail: { window: 60 * 60, max: 20 }, perIp: { window: 60 * 60, max: 40 } },
+  // General Info → Change Password, keyed by user id.
+  "password-change": { perEmail: { window: 15 * 60, max: 5 }, perIp: { window: 15 * 60, max: 10 } },
+  // 2FA codes (sign-in second step, enable, disable), keyed by user id or "pending".
+  "two-factor": { perEmail: { window: 15 * 60, max: 5 }, perIp: { window: 15 * 60, max: 15 } },
+  "email-change": { perEmail: { window: 60 * 60, max: 3 }, perIp: { window: 60 * 60, max: 10 } },
   // Command palette search, keyed by user id.
   "admin-search": { perEmail: { window: 60, max: 60 }, perIp: { window: 60, max: 120 } },
 };

@@ -1,8 +1,9 @@
 import "server-only";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
+import { twoFactor } from "better-auth/plugins";
 import { CART_COOKIE } from "@/lib/cart-cookie";
 import { mergeGuestIntoUser } from "@/lib/cart/merge";
 import { prisma } from "@/lib/db";
@@ -25,7 +26,7 @@ export const auth = betterAuth({
     sendResetPassword: async ({ user, url }) => {
       await sendMail({
         to: user.email,
-        subject: "Reset your Ecofy password",
+        subject: "Reset your {store} password",
         text: `Use this link within 1 hour to choose a new password: ${url}`,
         link: url,
       });
@@ -40,7 +41,7 @@ export const auth = betterAuth({
     sendVerificationEmail: async ({ user, url }) => {
       await sendMail({
         to: user.email,
-        subject: "Verify your Ecofy email",
+        subject: "Verify your {store} email",
         text: `Confirm your email address within 24 hours: ${url}`,
         link: url,
       });
@@ -73,6 +74,11 @@ export const auth = betterAuth({
       "/request-password-reset": { window: 60 * 60, max: 10 },
       "/send-verification-email": { window: 60 * 60, max: 10 },
       "/get-session": false,
+      // TOTP / backup codes (sign-in second step, enable, disable). The plugin adds
+      // its own 3 per 10 s burst rule on top.
+      "/two-factor/*": { window: 15 * 60, max: 10 },
+      "/change-password": { window: 15 * 60, max: 10 },
+      "/change-email": { window: 60 * 60, max: 5 },
     },
   },
   advanced: {
@@ -80,11 +86,37 @@ export const auth = betterAuth({
     useSecureCookies: process.env.NODE_ENV === "production",
   },
   user: {
+    // Admin General Info → E-mail. Verified emails: a confirmation link goes to the
+    // CURRENT address first, then a verification link to the new one; the email
+    // changes only when that is opened.
+    changeEmail: {
+      enabled: true,
+      sendChangeEmailConfirmation: async ({ user, newEmail, url }) => {
+        await sendMail({
+          to: user.email,
+          subject: "Confirm your {store} email change",
+          text: `Someone (hopefully you) asked to change your email to ${newEmail}. Open this link within 24 hours to approve it: ${url}`,
+          link: url,
+        });
+      },
+    },
     additionalFields: {
       role: {
         type: ["CUSTOMER", "STAFF", "ADMIN"],
         defaultValue: "CUSTOMER",
         input: false, // never settable from sign-up payloads
+      },
+    },
+  },
+  // Deactivated staff (admin Control Authority) can't get a new session by any
+  // route: email, Google, 2FA verify or the verification-link auto sign-in.
+  databaseHooks: {
+    session: {
+      create: {
+        before: async (session) => {
+          const user = await prisma.user.findUnique({ where: { id: session.userId }, select: { deactivatedAt: true } });
+          if (user?.deactivatedAt) throw new APIError("FORBIDDEN", { message: "Invalid email or password." });
+        },
       },
     },
   },
@@ -110,7 +142,13 @@ export const auth = betterAuth({
     }),
   },
   // Must be last: lets server actions set auth cookies.
-  plugins: [nextCookies()],
+  plugins: [
+    // Admin Security → 2FA (TOTP + backup codes). A sign-in for a user with 2FA on
+    // returns { twoFactorRedirect } and sets a 10-minute two-factor cookie;
+    // /admin/login/verify finishes it.
+    twoFactor({ issuer: "Ecofy Admin" }),
+    nextCookies(),
+  ],
 });
 
 export type Session = typeof auth.$Infer.Session;

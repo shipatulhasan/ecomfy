@@ -47,7 +47,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       { label: "Dashboard", href: "/admin", icon: HouseIcon, permission: "dashboard:read", exact: true },
       { label: "Order Management", href: "/admin/orders", icon: ShoppingCartIcon, permission: "orders:read", badge: "pendingOrders" },
       { label: "Customers", href: "/admin/customers", icon: UsersIcon, permission: "customers:read" },
-      { label: "Coupon Code", href: "/admin/coupons", icon: TicketIcon, permission: "coupons:write" },
+      { label: "Coupon Code", href: "/admin/coupons", icon: TicketIcon, permission: "coupons:read" },
       { label: "Categories", href: "/admin/categories", icon: BlendIcon, permission: "categories:read" },
       { label: "Transaction", href: "/admin/transactions", icon: CreditCardIcon, permission: "payments:read", badge: "paymentsAttention" },
     ],
@@ -55,8 +55,8 @@ export const ADMIN_NAV: AdminNavGroup[] = [
   {
     label: "Product",
     items: [
-      { label: "Add Products", href: "/admin/products/new", icon: CirclePlusIcon, permission: "products:write", exact: true },
-      { label: "Product Media", href: "/admin/media", icon: ImageIcon, permission: "products:write" },
+      { label: "Add Products", href: "/admin/products/new", icon: CirclePlusIcon, permission: "products:create", exact: true },
+      { label: "Product Media", href: "/admin/media", icon: ImageIcon, permission: "products:update" },
       { label: "Product List", href: "/admin/products", icon: PackageSearchIcon, permission: "products:read" },
     ],
   },

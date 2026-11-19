@@ -108,8 +108,8 @@ async function categoryRedirect(request: NextRequest) {
   return NextResponse.redirect(url, 308);
 }
 
-const ADMIN_PUBLIC = new Set(["/admin/login", "/admin/register", "/admin/forgot-password", "/admin/reset-password"]);
-const ADMIN_SKIP_WHEN_SIGNED_IN = new Set(["/admin/login", "/admin/register"]);
+const ADMIN_PUBLIC = new Set(["/admin/login", "/admin/login/verify", "/admin/register", "/admin/forgot-password", "/admin/reset-password"]);
+const ADMIN_SKIP_WHEN_SIGNED_IN = new Set(["/admin/login", "/admin/login/verify", "/admin/register"]);
 
 async function adminGate(request: NextRequest) {
   const { pathname, search, searchParams } = request.nextUrl;

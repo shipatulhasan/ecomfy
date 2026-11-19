@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: "Edit Product" };
 
 /**
  * Edit Product: the Add Product form loaded with the product. Staff with
- * products:read but not products:write see it read-only (saving is refused
+ * products:read but not products:update see it read-only (saving is refused
  * server-side as well).
  */
 export default function EditProductPage({ params }: PageProps<"/admin/products/[id]">) {
@@ -41,8 +41,8 @@ async function Gate({ params }: Pick<PageProps<"/admin/products/[id]">, "params"
         brands={options.brands}
         tags={options.tags}
         maxMb={maxMb}
-        canWrite={can(user, "products:write")}
-        canAddCategory={can(user, "categories:write")}
+        canWrite={can(user, "products:update")}
+        canAddCategory={can(user, "categories:create")}
       />
     </Container>
   );

@@ -1,5 +1,6 @@
 import { LogoMark } from "@/components/shared/logo";
-import { siteConfig } from "@/lib/config/site";
+import { phoneLabel } from "@/lib/checkout/settings";
+import { getStoreSettings } from "@/lib/queries/settings";
 import type { OrderStatus, PaymentMethod, PaymentStatus } from "@/lib/generated/prisma/enums";
 import { formatPrice } from "@/lib/money";
 import { formatOrderDate } from "@/lib/orders/format";
@@ -32,7 +33,10 @@ export type InvoiceData = {
   items: { id: string; productName: string; variantName: string; unitPriceCents: number; quantity: number; subtotalCents: number }[];
 };
 
-export function InvoiceSheet({ order, className }: { order: InvoiceData; className?: string }) {
+export async function InvoiceSheet({ order, className }: { order: InvoiceData; className?: string }) {
+  // Admin Settings → Store (name, address, phone, email).
+  const { store } = await getStoreSettings();
+  const contact = `${phoneLabel(store.contactPhone)} · ${store.contactEmail}`;
   const status = orderStatusView(order.status, order.paymentStatus, order.paymentMethod);
   const payment = paymentStatusView(order.paymentMethod, order.paymentStatus);
   const totals: [string, string][] = [
@@ -55,12 +59,10 @@ export function InvoiceSheet({ order, className }: { order: InvoiceData; classNa
         <div className="flex flex-col gap-2">
           <span className="inline-flex items-center gap-2">
             <LogoMark className="h-8 w-auto" />
-            <span className="text-h2 font-medium tracking-tight text-brand-ink">{siteConfig.name}</span>
+            <span className="text-h2 font-medium tracking-tight text-brand-ink">{store.name}</span>
           </span>
-          <p className="text-caption">{siteConfig.storeLocation.replace(/^Store Location:\s*/, "")}</p>
-          <p className="text-caption">
-            {siteConfig.phone.label} · {siteConfig.email.label}
-          </p>
+          <p className="text-caption">{store.address}</p>
+          <p className="text-caption">{contact}</p>
         </div>
         <div className="flex flex-col items-end gap-1 text-right">
           <h1 className="text-h2 font-semibold text-brand-dark">Invoice</h1>
@@ -134,7 +136,7 @@ export function InvoiceSheet({ order, className }: { order: InvoiceData; classNa
       </dl>
 
       <footer className="border-t border-border pt-4 text-center text-caption text-text-subtle">
-        Thank you for shopping with {siteConfig.name}. Questions? {siteConfig.phone.label} · {siteConfig.email.label}
+        Thank you for shopping with {store.name}. Questions? {contact}
       </footer>
     </article>
   );

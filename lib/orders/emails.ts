@@ -56,7 +56,7 @@ export async function sendOrderEmail(orderId: string, kind: OrderEmailKind): Pro
       },
       delivered: {
         subject: `Order ${o.orderNumber} delivered`,
-        text: `Order ${o.orderNumber} has been delivered. Thanks for shopping with Ecomfy!`,
+        text: `Order ${o.orderNumber} has been delivered. Thanks for shopping with {store}!`,
       },
       cancelled: {
         subject: `Order ${o.orderNumber} cancelled`,

@@ -1,140 +1,159 @@
 "use client";
 
-import { ChevronRightIcon, CirclePlusIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { CirclePlusIcon, UserRoundCheckIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FormAlert } from "@/components/shared/form-field";
 import { useKeptForm } from "@/components/shared/use-kept-form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { createInviteAction } from "@/lib/actions/admin-invites";
 import { cn } from "@/lib/utils";
-
-const field =
-  "h-12.25 w-full min-w-0 rounded-lg border border-border bg-muted px-4 text-copy text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/15 aria-invalid:border-destructive";
+import { DrawerField, DrawerForm, DrawerFrame, drawerField, drawerPrimary } from "./drawer-frame";
 
 /**
- * Add Members.png: right drawer (400 from tablet, full width on mobile) with a
- * "Control Authority › Add Members" breadcrumb, First / Last name, E-mail, Phone,
- * Assign Role, Close + Add. Deliberate difference: no "Set Initial Password"
- * block — Add sends an invite and the new member sets their own password on
- * /admin/register (an admin never knows it).
+ * Add Members.png drawer: First / Last name, E-mail, Phone, Assign Role, Close + Add.
+ * Deliberate differences: no "Set Initial Password" (Add sends a 48h single-use
+ * invite; the member sets their own password on /admin/register), and the phone
+ * is BD (+880) instead of the PNG's US flag. An email that already has a customer
+ * account asks "Upgrade to staff?" first.
  */
-export function AddMemberSheet() {
+export function AddMemberSheet({
+  roles,
+  defaultRoleId,
+  variant = "page",
+}: {
+  roles: { id: string; name: string }[];
+  defaultRoleId?: string | null;
+  /** "page": big green button (header); "card": the Members card's small outlined button. */
+  variant?: "page" | "card";
+}) {
   const [open, setOpen] = useState(false);
-  const { state, pending, onSubmit, err, formError } = useKeptForm(createInviteAction);
-
-  useEffect(() => {
-    if (state?.ok) {
-      toast.success(`Invite sent to ${state.data.email}. The link works for 48 hours.`);
-      setOpen(false); // eslint-disable-line react-hooks/set-state-in-effect -- close after a successful submit
-    }
-  }, [state]);
-
+  const close = useCallback(() => setOpen(false), []);
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger className="press inline-flex h-11.25 items-center gap-2 rounded-lg bg-primary px-5 text-copy font-bold text-primary-foreground hover:bg-primary-hover">
-        <CirclePlusIcon aria-hidden className="size-5" /> Add Members
-      </SheetTrigger>
-      <SheetContent
-        side="right"
-        showCloseButton={false}
-        className="w-full! max-w-none! gap-0 bg-card p-0 tablet:w-100!"
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={cn(
+          "press inline-flex shrink-0 items-center gap-2 rounded-lg font-bold",
+          variant === "page"
+            ? "tap-target h-12 bg-primary px-3 text-lead text-primary-foreground hover:bg-primary-hover"
+            : "tap-target h-8 border border-primary px-2 text-copy text-primary hover:bg-secondary",
+        )}
       >
-        <form key={open ? "open" : "closed"} onSubmit={onSubmit} noValidate className="flex h-full flex-col">
-          <div className="flex-1 overflow-y-auto px-7.5 pt-14">
-            <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-lead text-muted-foreground">
-              Control Authority <ChevronRightIcon aria-hidden className="size-4" />
-              <span className="text-primary">Add Members</span>
-            </nav>
-            <SheetTitle className="mt-6 text-h2 font-bold text-foreground">Add Members</SheetTitle>
-            <SheetDescription className="sr-only">Invite a staff member or admin by email.</SheetDescription>
-
-            <div className="mt-5 flex flex-col gap-5">
-              {formError && <FormAlert tone="error">{formError}</FormAlert>}
-              <Field label="First Name" id="m-first" error={err("firstName")}>
-                <input id="m-first" name="firstName" autoComplete="given-name" placeholder="Write here" required className={field} aria-invalid={!!err("firstName")} />
-              </Field>
-              <Field label="Last Name" id="m-last" error={err("lastName")}>
-                <input id="m-last" name="lastName" autoComplete="family-name" placeholder="Write here" className={field} />
-              </Field>
-              <Field label="E-mail" id="m-email" error={err("email")}>
-                <input
-                  id="m-email"
-                  name="email"
-                  type="email"
-                  inputMode="email"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  placeholder="name@example.com"
-                  required
-                  className={field}
-                  aria-invalid={!!err("email")}
-                />
-              </Field>
-              <Field label="Phone Number" id="m-phone" error={err("phone")}>
-                <div className="relative">
-                  <input
-                    id="m-phone"
-                    name="phone"
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
-                    placeholder="01XXXXXXXXX"
-                    className={cn(field, "pr-20")}
-                    aria-invalid={!!err("phone")}
-                  />
-                  <span className="pointer-events-none absolute inset-y-2 right-0 flex items-center gap-1 border-l border-border px-3 text-copy text-text-body">
-                    <span aria-hidden>🇧🇩</span> +880
-                  </span>
-                </div>
-              </Field>
-              <p className="rounded-lg bg-secondary px-4 py-3 text-caption text-secondary-foreground">
-                They&apos;ll get an email link to set their own password. The link works once, for 48 hours.
-              </p>
-              <Field label="Assign Role" id="m-role" error={err("role")}>
-                <Select name="role" required>
-                  <SelectTrigger id="m-role" className={cn(field, "h-12.25! w-full justify-between")} aria-invalid={!!err("role")}>
-                    <SelectValue placeholder="Select Here" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="STAFF">Staff (orders, products, customers)</SelectItem>
-                    <SelectItem value="ADMIN">Admin (everything)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4 px-7.5 pt-4 pb-[max(1.75rem,env(safe-area-inset-bottom))]">
-            <SheetClose className="press h-11.25 rounded-lg border border-destructive text-copy font-bold text-destructive hover:bg-sale-soft">
-              Close
-            </SheetClose>
-            <button
-              type="submit"
-              disabled={pending}
-              aria-busy={pending || undefined}
-              className={cn(
-                "press inline-flex h-11.25 items-center justify-center gap-2 rounded-lg bg-primary text-copy font-bold text-primary-foreground hover:bg-primary-hover disabled:opacity-75",
-                pending && "animate-pulse",
-              )}
-            >
-              <CirclePlusIcon aria-hidden className="size-5" /> {pending ? "Sending…" : "Add"}
-            </button>
-          </div>
-        </form>
-      </SheetContent>
-    </Sheet>
+        <CirclePlusIcon aria-hidden className={variant === "page" ? "size-6" : "size-5"} /> Add Members
+      </button>
+      <DrawerFrame open={open} onOpenChange={setOpen}>
+        <AddMemberForm roles={roles} defaultRoleId={defaultRoleId} onDone={close} />
+      </DrawerFrame>
+    </>
   );
 }
 
-function Field({ label, id, error, children }: { label: string; id: string; error?: string; children: React.ReactNode }) {
+function AddMemberForm({
+  roles,
+  defaultRoleId,
+  onDone,
+}: {
+  roles: { id: string; name: string }[];
+  defaultRoleId?: string | null;
+  onDone: () => void;
+}) {
+  const [upgrade, setUpgrade] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const { state, pending, onSubmit, err, formError } = useKeptForm(createInviteAction);
+  const needsUpgrade = state?.ok && state.data.needsUpgrade;
+
+  useEffect(() => {
+    if (state?.ok && !state.data.needsUpgrade) {
+      toast.success(`Invite sent to ${state.data.email}. The link works once, for 48 hours.`);
+      onDone();
+    }
+  }, [state, onDone]);
+
+  // Resubmit once the hidden "upgrade" field has rendered.
+  useEffect(() => {
+    if (upgrade) formRef.current?.requestSubmit();
+  }, [upgrade]);
+
   return (
-    <div className="flex flex-col gap-2.5">
-      <label htmlFor={id} className="text-lead text-foreground">
-        {label}
-      </label>
-      {children}
-      {error && <p className="text-caption text-destructive">{error}</p>}
-    </div>
+    <DrawerForm
+      title="Add Members"
+      description="Invite a team member by email. They set their own password."
+      formRef={formRef}
+      onSubmit={onSubmit}
+      onClose={onDone}
+      primary={
+        <button type="submit" disabled={pending} aria-busy={pending || undefined} className={cn(drawerPrimary, pending && "animate-pulse")}>
+          <CirclePlusIcon aria-hidden className="size-5" /> {pending ? "Sending…" : "Add"}
+        </button>
+      }
+    >
+        <input type="hidden" name="upgrade" value={upgrade ? "1" : ""} />
+      {formError && <FormAlert tone="error">{formError}</FormAlert>}
+      {needsUpgrade && !upgrade && (
+        <div role="alert" className="flex flex-col gap-3 rounded-lg bg-warning-soft px-4 py-3 text-copy text-foreground">
+          <p>
+            <strong>{state.data.email}</strong> already has a customer account. Upgrade it to staff? Their orders and addresses stay; accepting the
+            invite sets a new password.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setUpgrade(true);
+            }}
+            className="press inline-flex h-10 items-center justify-center gap-2 self-start rounded-lg bg-primary px-4 font-bold text-primary-foreground hover:bg-primary-hover"
+          >
+            <UserRoundCheckIcon aria-hidden className="size-5" /> Upgrade to staff
+          </button>
+        </div>
+      )}
+      <DrawerField label="First Name" id="m-first" error={err("firstName")}>
+        <input id="m-first" name="firstName" autoComplete="off" placeholder="Write here" required className={drawerField} aria-invalid={!!err("firstName")} />
+      </DrawerField>
+      <DrawerField label="Last Name" id="m-last" error={err("lastName")}>
+        <input id="m-last" name="lastName" autoComplete="off" placeholder="Write here" className={drawerField} />
+      </DrawerField>
+      <DrawerField label="E-mail" id="m-email" error={err("email")}>
+        <input
+          id="m-email"
+          name="email"
+          type="email"
+          inputMode="email"
+          autoCapitalize="none"
+          spellCheck={false}
+          placeholder="demo@gmail.com"
+          required
+          onChange={() => upgrade && setUpgrade(false)}
+          className={drawerField}
+          aria-invalid={!!err("email")}
+        />
+      </DrawerField>
+      <DrawerField label="Phone Number" id="m-phone" error={err("phone")}>
+        <div className="relative">
+          <input id="m-phone" name="phone" type="tel" inputMode="tel" autoComplete="off" placeholder="01XXXXXXXXX" className={cn(drawerField, "pr-22")} aria-invalid={!!err("phone")} />
+          <span className="pointer-events-none absolute inset-y-2 right-0 flex items-center gap-1 border-l border-border px-3 text-copy text-text-body">
+            <span aria-hidden>🇧🇩</span> +880
+          </span>
+        </div>
+      </DrawerField>
+      <p className="rounded-lg bg-secondary px-4 py-3 text-caption text-secondary-foreground">
+        They&apos;ll get an email link to set their own password. The link works once, for 48 hours.
+      </p>
+      <DrawerField label="Assign Role" id="m-role" error={err("staffRoleId")}>
+        <Select name="staffRoleId" required defaultValue={defaultRoleId ?? undefined}>
+          <SelectTrigger id="m-role" className={cn(drawerField, "h-12.25! w-full justify-between")} aria-invalid={!!err("staffRoleId")}>
+            <SelectValue placeholder="Select Here" />
+          </SelectTrigger>
+          <SelectContent>
+            {roles.map((r) => (
+              <SelectItem key={r.id} value={r.id}>
+                {r.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </DrawerField>
+    </DrawerForm>
   );
 }

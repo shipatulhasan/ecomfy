@@ -6,7 +6,7 @@ import { ProductListView } from "@/components/admin/products/list/product-list-v
 import { Forbidden } from "@/components/admin/shell/forbidden";
 import { Container } from "@/components/shared/container";
 import { parseProductParams, productParamsHref, type ProductListParams } from "@/lib/admin/products/params";
-import { can } from "@/lib/auth/permissions";
+import { can, canAny } from "@/lib/auth/permissions";
 import { requireStaff } from "@/lib/auth-guards";
 import { getProductFilterOptions, listAdminProducts, type ProductFilterOptions } from "@/lib/queries/admin/products";
 import { redirect } from "next/navigation";
@@ -32,7 +32,8 @@ async function Gate({ searchParams }: Pick<PageProps<"/admin/products">, "search
   if (!can(user, "products:read")) return <Forbidden />;
   const params = parseProductParams(await searchParams);
   const options = await getProductFilterOptions();
-  const canWrite = can(user, "products:write");
+  // Row/bulk actions; each server action re-checks its own create/update/delete permission.
+  const canWrite = canAny(user, ["products:create", "products:update", "products:delete"]);
 
   return (
     <Container variant="admin" className="py-5">

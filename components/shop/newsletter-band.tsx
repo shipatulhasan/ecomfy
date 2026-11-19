@@ -1,6 +1,7 @@
 import { Container } from "@/components/shared/container";
 import { SocialIcon } from "@/components/shared/social-icons";
 import { siteConfig } from "@/lib/config/site";
+import { getStoreSettings } from "@/lib/queries/settings";
 import { cn } from "@/lib/utils";
 import { NewsletterForm } from "./newsletter-form";
 
@@ -8,8 +9,12 @@ import { NewsletterForm } from "./newsletter-form";
  * Newsletter band above the footer on every shop page.
  * Stacked on mobile/tablet; one row from laptop (designs/DESIGN.md).
  */
-export function NewsletterBand() {
-  const { newsletter, social } = siteConfig;
+export async function NewsletterBand() {
+  const { newsletter } = siteConfig;
+  // Admin Settings → Store social links; none set = the design's defaults.
+  const { store } = await getStoreSettings();
+  const custom = siteConfig.social.flatMap((s) => (store.socialLinks[s.network] ? [{ ...s, href: store.socialLinks[s.network]! }] : []));
+  const social = custom.length ? custom : siteConfig.social;
   return (
     <section data-slot="newsletter-band" aria-labelledby="newsletter-title" className="bg-muted">
       <Container className="flex flex-col gap-6 py-8 laptop:flex-row laptop:items-center laptop:gap-10 laptop:pt-10 laptop:pb-11.25">

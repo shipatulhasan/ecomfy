@@ -36,6 +36,6 @@ export async function findUsableInvite(db: Pick<PrismaClient, "adminInvite">, to
   if (!token || token.length < 16 || token.length > 128) return null;
   return db.adminInvite.findFirst({
     where: { tokenHash: hashInviteToken(token), ...usableInviteWhere() },
-    select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, expiresAt: true },
+    select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, staffRoleId: true, expiresAt: true },
   });
 }

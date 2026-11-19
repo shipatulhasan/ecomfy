@@ -1,5 +1,7 @@
 import "server-only";
 import { appendFile, mkdir } from "node:fs/promises";
+import { phoneLabel } from "@/lib/checkout/settings";
+import { getStoreSettings } from "@/lib/queries/settings";
 
 /**
  * Transactional mail (email verification, password reset).
@@ -10,10 +12,20 @@ import { appendFile, mkdir } from "node:fs/promises";
  * here (Resend, SES, …) when one exists — callers don't change.
  *
  * Never pass passwords or other secrets in `text`.
+ *
+ * `{store}` in the subject or text becomes the store name (admin Settings → Store),
+ * and every message ends with the store's contact line.
  */
 export type Mail = { to: string; subject: string; text: string; link?: string };
 
-export async function sendMail(mail: Mail): Promise<void> {
+export async function sendMail(input: Mail): Promise<void> {
+  const { store } = await getStoreSettings();
+  const fill = (v: string) => v.replaceAll("{store}", store.name);
+  const mail = {
+    ...input,
+    subject: fill(input.subject),
+    text: `${fill(input.text)}\n\n— ${store.name} · ${store.contactEmail} · ${phoneLabel(store.contactPhone)}`,
+  };
   if (process.env.NODE_ENV !== "production") {
     const entry = `[mail] ${new Date().toISOString()} to=${mail.to}\n[mail] subject=${mail.subject}\n[mail] link=${mail.link ?? "-"}\n`;
     console.info(`\n${entry}`);

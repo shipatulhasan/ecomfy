@@ -3,7 +3,8 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { auth, type SessionUser } from "@/lib/auth";
-import { can, isStaffRole, type Permission } from "@/lib/auth/permissions";
+import { can, isAssignablePermission, isStaffRole, PERMISSIONS, type Permission } from "@/lib/auth/permissions";
+import { prisma } from "@/lib/db";
 import { ActionError, FORBIDDEN } from "@/lib/actions/result";
 
 /**
@@ -21,11 +22,28 @@ export const getSession = cache(async () =>
   auth.api.getSession({ headers: await headers(), query: { disableCookieCache: true } }),
 );
 
-export async function getCurrentUser(): Promise<SessionUser | null> {
-  return (await getSession())?.user ?? null;
-}
+/**
+ * The session user plus what the admin needs: `permissions` (ADMIN: all; STAFF:
+ * their StaffRole's) and the role's display name. A deactivated staff member is
+ * signed out (null). Customers skip the extra query.
+ */
+export type CurrentUser = SessionUser & { permissions: readonly Permission[]; staffRoleName: string | null };
 
-export async function requireUser(redirectTo = "/sign-in"): Promise<SessionUser> {
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
+  const user = (await getSession())?.user;
+  if (!user) return null;
+  if (!isStaffRole(user.role)) return { ...user, permissions: [], staffRoleName: null };
+  const row = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { deactivatedAt: true, staffRole: { select: { name: true, permissions: true } } },
+  });
+  if (!row || row.deactivatedAt) return null;
+  const permissions =
+    user.role === "ADMIN" ? PERMISSIONS : (row.staffRole?.permissions ?? []).filter(isAssignablePermission);
+  return { ...user, permissions, staffRoleName: row.staffRole?.name ?? (user.role === "ADMIN" ? "Super Admin" : null) };
+});
+
+export async function requireUser(redirectTo = "/sign-in"): Promise<CurrentUser> {
   const user = await getCurrentUser();
   if (!user) redirect(redirectTo);
   return user;
@@ -35,7 +53,7 @@ export async function requireUser(redirectTo = "/sign-in"): Promise<SessionUser>
  * Admin panel pages (app/admin/(panel)/layout.tsx). No session, or a CUSTOMER
  * session → the admin login, back to `callbackUrl` afterwards.
  */
-export async function requireStaff(callbackUrl = "/admin"): Promise<SessionUser> {
+export async function requireStaff(callbackUrl = "/admin"): Promise<CurrentUser> {
   const user = await getCurrentUser();
   if (!user || !isStaffRole(user.role)) {
     redirect(`/admin/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
@@ -48,7 +66,7 @@ export async function requireStaff(callbackUrl = "/admin"): Promise<SessionUser>
  * staff without the permission → ActionError(FORBIDDEN) (runAction turns it into
  * `{ ok: false, error: FORBIDDEN }`). Pages check `can()` and render <Forbidden />.
  */
-export async function requirePermission(permission: Permission | readonly Permission[]): Promise<SessionUser> {
+export async function requirePermission(permission: Permission | readonly Permission[]): Promise<CurrentUser> {
   const user = await requireStaff();
   const any = typeof permission === "string" ? [permission] : permission; // any one of them
   if (!any.some((p) => can(user, p))) throw new ActionError(FORBIDDEN);
@@ -56,6 +74,6 @@ export async function requirePermission(permission: Permission | readonly Permis
 }
 
 /** Full admin rights (ADMIN role). Prefer requirePermission() for specific checks. */
-export async function requireAdmin(): Promise<SessionUser> {
+export async function requireAdmin(): Promise<CurrentUser> {
   return requirePermission("users:manage");
 }

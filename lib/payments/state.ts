@@ -1,7 +1,8 @@
 import "server-only";
 import { after } from "next/server";
 import { prisma } from "@/lib/db";
-import { PENDING_PAYMENT_TTL_MIN, paymentMethodMeta, paymentReference } from "@/lib/config/checkout";
+import { paymentMethodMeta, paymentReference } from "@/lib/config/checkout";
+import { getStoreSettings } from "@/lib/queries/settings";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import type { PaymentMethod } from "@/lib/generated/prisma/enums";
 import { sendMail } from "@/lib/mail";
@@ -336,6 +337,8 @@ export async function expireStale(opts: { orderId?: string; limit?: number } = {
     take: opts.limit ?? 100,
   });
   assertTransition("PENDING_PAYMENT", "EXPIRED", "system");
+  if (stale.length === 0) return 0;
+  const reason = `Unpaid after ${(await getStoreSettings()).pendingPaymentTtlMin} minutes`;
   let expired = 0;
   for (const { id } of stale) {
     const done = await prisma.$transaction(async (tx) => {
@@ -346,10 +349,10 @@ export async function expireStale(opts: { orderId?: string; limit?: number } = {
       if (n.count !== 1) return false;
       await tx.payment.updateMany({
         where: { orderId: id, status: { in: [...OPEN_ATTEMPT] } },
-        data: { status: "EXPIRED", failReason: `Unpaid after ${PENDING_PAYMENT_TTL_MIN} minutes`, completedAt: now },
+        data: { status: "EXPIRED", failReason: reason, completedAt: now },
       });
       await releaseStock(tx, id);
-      await recordStatus(tx, id, "EXPIRED", `Unpaid after ${PENDING_PAYMENT_TTL_MIN} minutes`);
+      await recordStatus(tx, id, "EXPIRED", reason);
       return true;
     });
     if (done) {
@@ -361,7 +364,8 @@ export async function expireStale(opts: { orderId?: string; limit?: number } = {
   return expired;
 }
 
-export const pendingPaymentDeadline = () => new Date(Date.now() + PENDING_PAYMENT_TTL_MIN * 60_000);
+/** Admin Settings → Orders "Pending-payment expiry" (StoreSettings.pendingPaymentTtlMin). */
+export const pendingPaymentDeadline = (ttlMin: number) => new Date(Date.now() + ttlMin * 60_000);
 
 // ───────────────────────────── email ─────────────────────────────
 
@@ -377,7 +381,7 @@ export function queueConfirmationEmail(orderId: string) {
       const paid = o.paymentStatus === "PAID";
       await sendMail({
         to: o.email,
-        subject: `Your Ecomfy order ${o.orderNumber}`,
+        subject: `Your {store} order ${o.orderNumber}`,
         text: paid
           ? `Thanks! We received ${formatPrice(o.totalCents)} for order ${o.orderNumber}.`
           : `Thanks! Order ${o.orderNumber} is placed. Pay ${formatPrice(o.totalCents)} in cash on delivery.`,

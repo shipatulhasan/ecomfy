@@ -8,7 +8,7 @@ import { CategoryListSkeleton, CategoryPageSkeleton } from "@/components/admin/c
 import { Forbidden } from "@/components/admin/shell/forbidden";
 import { Container } from "@/components/shared/container";
 import { categoryParamsHref, parseCategoryParams, type CategoryListParams } from "@/lib/admin/categories/params";
-import { can } from "@/lib/auth/permissions";
+import { can, canAny } from "@/lib/auth/permissions";
 import { requireStaff } from "@/lib/auth-guards";
 import { getAdminCategoryPage, getCategoryForEdit, getDiscoverTiles, getParentOptions } from "@/lib/queries/admin/categories";
 import { getMaxUploadMb } from "@/lib/queries/admin/products";
@@ -36,7 +36,8 @@ async function Gate({ searchParams }: Pick<PageProps<"/admin/categories">, "sear
   const sp = await searchParams;
   const params = parseCategoryParams(sp);
   const edit = typeof sp.edit === "string" ? sp.edit : null;
-  const canWrite = can(user, "categories:write");
+  // Each server action re-checks its own create/update/delete permission.
+  const canWrite = canAny(user, ["categories:create", "categories:update", "categories:delete"]);
 
   return (
     <Container variant="admin" className="flex flex-col gap-6 py-5">

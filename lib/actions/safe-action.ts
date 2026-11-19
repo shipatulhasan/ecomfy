@@ -1,9 +1,8 @@
 import "server-only";
 import { unstable_rethrow } from "next/navigation";
 import { z } from "zod";
-import type { SessionUser } from "@/lib/auth";
 import type { Permission } from "@/lib/auth/permissions";
-import { requirePermission } from "@/lib/auth-guards";
+import { requirePermission, type CurrentUser } from "@/lib/auth-guards";
 import { ActionError, type ActionResult } from "./result";
 
 /**
@@ -67,7 +66,7 @@ function fieldErrorsOf(error: z.ZodError): Record<string, string[] | undefined> 
  * Every admin mutation must also call logAudit() (lib/audit.ts).
  *
  *   export async function createCoupon(_prev, fd: FormData) {
- *     return runAdminAction("coupons:write", couponSchema, fields(fd), async (data, actor) => { … });
+ *     return runAdminAction("coupons:create", couponSchema, fields(fd), async (data, actor) => { … });
  *   }
  */
 export async function runAdminAction<S extends z.ZodType, T>(
@@ -75,9 +74,9 @@ export async function runAdminAction<S extends z.ZodType, T>(
   permission: Permission | readonly Permission[],
   schema: S,
   input: unknown,
-  fn: (data: z.infer<S>, actor: SessionUser) => Promise<T>,
+  fn: (data: z.infer<S>, actor: CurrentUser) => Promise<T>,
 ): Promise<ActionResult<T>> {
-  let actor: SessionUser;
+  let actor: CurrentUser;
   try {
     actor = await requirePermission(permission);
   } catch (err) {

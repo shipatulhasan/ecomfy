@@ -3,16 +3,18 @@
 import { randomUUID } from "node:crypto";
 import { APIError } from "better-auth/api";
 import { hashPassword, verifyPassword } from "better-auth/crypto";
+import { updateTag } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { findUsableInvite, hashInviteToken, usableInviteWhere } from "@/lib/admin/invites";
 import { logAudit } from "@/lib/audit";
 import { auth } from "@/lib/auth";
+import { CacheTags } from "@/lib/cache-tags";
 import { isStaffRole } from "@/lib/auth/permissions";
 import { safeAdminCallbackUrl } from "@/lib/callback-url";
 import { prisma } from "@/lib/db";
 import { clearAuthAttempts, limitAuthAttempt, pruneRateLimits } from "@/lib/rate-limit";
-import { acceptInviteSchema, adminSignInSchema } from "@/lib/validations/admin";
+import { acceptInviteSchema, adminSignInSchema, twoFactorSignInSchema } from "@/lib/validations/admin";
 import { forgotPasswordSchema, resetPasswordSchema } from "@/lib/validations/auth";
 import { ActionError, type ActionResult } from "./result";
 import { runAction } from "./safe-action";
@@ -27,8 +29,9 @@ import { runAction } from "./safe-action";
  * - rate limits are stricter ("admin-*" buckets in lib/rate-limit.ts);
  * - there is no public sign-up: /admin/register needs an invite token.
  *
- * TOTP (deferred): a second step would go between the password check and the
- * redirect in adminSignInAction.
+ * A deactivated member gets the same generic message (and Better Auth's
+ * session.create hook refuses them anyway). With 2FA on, the password step
+ * returns { twoFactorRedirect } instead of a session → /admin/login/verify.
  */
 type FormState = ActionResult<{ message?: string }> | null;
 
@@ -51,14 +54,15 @@ export async function adminSignInAction(_prev: FormState, fd: FormData): Promise
       const limited = await limitAuthAttempt("admin-sign-in", email);
       if (limited) throw new ActionError(limited);
 
-      const user = await prisma.user.findUnique({ where: { email }, select: { role: true } });
-      if (!user || !isStaffRole(user.role)) {
+      const user = await prisma.user.findUnique({ where: { email }, select: { role: true, deactivatedAt: true } });
+      if (!user || !isStaffRole(user.role) || user.deactivatedAt) {
         await verifyPassword({ hash: await timingDummy(), password }).catch(() => false);
         throw new ActionError(INVALID_CREDENTIALS);
       }
 
+      let res: unknown;
       try {
-        await auth.api.signInEmail({
+        res = await auth.api.signInEmail({
           body: { email, password, rememberMe: rememberMe ?? false },
           headers: await headers(),
         });
@@ -68,6 +72,44 @@ export async function adminSignInAction(_prev: FormState, fd: FormData): Promise
       }
       await clearAuthAttempts("admin-sign-in", email);
       void pruneRateLimits().catch(() => {});
+      const next = safeAdminCallbackUrl(callbackUrl);
+      if (needsSecondFactor(res)) redirect(`/admin/login/verify?callbackUrl=${encodeURIComponent(next)}`);
+      redirect(next);
+    },
+  );
+}
+
+function needsSecondFactor(res: unknown): boolean {
+  return !!res && typeof res === "object" && "twoFactorRedirect" in res && res.twoFactorRedirect === true;
+}
+
+/**
+ * /admin/login/verify: the authenticator code, or a backup code (single use).
+ * Needs the 10-minute two-factor cookie the password step set; Better Auth also
+ * locks the account after 10 failed codes in a row.
+ */
+export async function adminVerifyTwoFactorAction(_prev: FormState, fd: FormData): Promise<FormState> {
+  return runAction(
+    twoFactorSignInSchema,
+    fields(fd, ["code", "mode", "trustDevice", "callbackUrl"]),
+    async ({ code, mode, trustDevice, callbackUrl }) => {
+      const limited = await limitAuthAttempt("two-factor", "sign-in");
+      if (limited) throw new ActionError(limited);
+      const h = await headers();
+      try {
+        if (mode === "backup") {
+          await auth.api.verifyBackupCode({ body: { code, trustDevice: trustDevice ?? false }, headers: h });
+        } else {
+          await auth.api.verifyTOTP({ body: { code, trustDevice: trustDevice ?? false }, headers: h });
+        }
+      } catch (err) {
+        if (err instanceof APIError) {
+          throw new ActionError(
+            mode === "backup" ? "That backup code is invalid or already used." : "That code is invalid or expired. Try the current one.",
+          );
+        }
+        throw err;
+      }
       redirect(safeAdminCallbackUrl(callbackUrl));
     },
   );
@@ -152,7 +194,13 @@ export async function acceptInviteAction(_prev: FormState, fd: FormData): Promis
           userId = existing.id;
           await tx.user.update({
             where: { id: userId },
-            data: { role: invite.role, emailVerified: true, ...(invite.phone ? { phone: invite.phone } : {}) },
+            data: {
+              role: invite.role,
+              staffRoleId: invite.staffRoleId,
+              deactivatedAt: null,
+              emailVerified: true,
+              ...(invite.phone ? { phone: invite.phone } : {}),
+            },
           });
           const credential = existing.accounts[0];
           if (credential) await tx.account.update({ where: { id: credential.id }, data: { password: hash } });
@@ -171,6 +219,7 @@ export async function acceptInviteAction(_prev: FormState, fd: FormData): Promis
               email: invite.email,
               emailVerified: true, // the invite link was opened from this inbox
               role: invite.role,
+              staffRoleId: invite.staffRoleId,
               phone: invite.phone,
               accounts: {
                 create: { id: randomUUID(), accountId: userId, providerId: "credential", password: hash },
@@ -192,6 +241,7 @@ export async function acceptInviteAction(_prev: FormState, fd: FormData): Promis
         );
       });
 
+      updateTag(CacheTags.adminMembers); // Control Authority: invite → member
       redirect("/admin/login?registered=1");
     },
   );

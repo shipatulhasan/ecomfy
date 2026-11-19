@@ -10,7 +10,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { phoneLabel } from "@/lib/checkout/settings";
 import { siteConfig } from "@/lib/config/site";
+import { getStoreSettings } from "@/lib/queries/settings";
 import { CurrencySwitcher } from "@/components/shared/currency-switcher";
 import { getCategoryTree } from "@/lib/queries/catalog";
 import { CartDrawer } from "./cart/cart-drawer";
@@ -37,13 +39,14 @@ export function SiteHeader() {
   );
 }
 
-function TopBar() {
+async function TopBar() {
+  const { store } = await getStoreSettings();
   return (
     <div className="hidden bg-primary text-caption text-primary-foreground laptop:block">
       <Container className="flex h-10.5 items-center justify-between gap-4">
         <p className="flex items-center gap-2">
           <MapPinIcon aria-hidden className="size-4" />
-          {siteConfig.storeLocation}
+          Store Location: {store.address}
         </p>
         <div className="flex items-center gap-5">
           <Picker label="Language" options={siteConfig.languages} />
@@ -100,12 +103,13 @@ function SearchForm({ className }: { className?: string }) {
   );
 }
 
-function MainBar() {
+async function MainBar() {
+  const { store } = await getStoreSettings();
   return (
     <div className="border-b border-border laptop:border-b-0">
       <Container className="flex h-16 items-center gap-3 laptop:h-23.25 laptop:justify-between">
         <HeaderBackButton />
-        <Logo />
+        <Logo name={store.name} logoUrl={store.logoUrl} />
         <SearchForm className="hidden laptop:block laptop:max-w-124.5 laptop:flex-none laptop:basis-124.5" />
         <div className="ml-auto flex items-center gap-1 laptop:ml-0 laptop:gap-4">
           {/* Below laptop: search is its own screen (also the Search tab). */}
@@ -125,7 +129,8 @@ function MainBar() {
   );
 }
 
-function NavBar() {
+async function NavBar() {
+  const { store } = await getStoreSettings();
   return (
     <nav aria-label="Main" className="hidden bg-muted-strong laptop:block">
       <Container className="flex h-14 items-center gap-8">
@@ -134,11 +139,11 @@ function NavBar() {
         </Suspense>
         <NavLinks links={siteConfig.mainNav} className="flex items-center gap-8 text-copy" />
         <a
-          href={siteConfig.phone.href}
+          href={`tel:${store.contactPhone}`}
           className="ml-auto flex items-center gap-2 text-copy font-medium text-foreground hover:text-primary"
         >
           <PhoneCallIcon aria-hidden className="size-6 stroke-[1.5]" />
-          {siteConfig.phone.label}
+          {phoneLabel(store.contactPhone)}
         </a>
       </Container>
     </nav>

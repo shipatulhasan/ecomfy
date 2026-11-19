@@ -19,12 +19,13 @@ import {
   productIdsSchema,
   type ProductFormData,
 } from "@/lib/validations/admin-product";
-import { ActionError, type ActionResult } from "./result";
+import { can } from "@/lib/auth/permissions";
+import { ActionError, FORBIDDEN, type ActionResult } from "./result";
 import { runAdminAction } from "./safe-action";
 
 /**
  * Admin product mutations (Product List, Add / Edit Product). Every action
- * re-checks `products:write` (runAdminAction), runs in one transaction with an
+ * re-checks `products:create|update|delete` (runAdminAction), runs in one transaction with an
  * audit entry, and expires the storefront's catalog tags with updateTag()
  * (read-your-own-writes) so Home, Shop, Quick View and the PDP update at once.
  */
@@ -97,7 +98,8 @@ function auditJson(s: Snapshot | null): Prisma.InputJsonValue | null {
  * a SlugRedirect so the old URL 308s to the new one.
  */
 export async function saveProduct(input: unknown): Promise<ActionResult<{ id: string; slug: string; status: string }>> {
-  return runAdminAction("products:write", productFormSchema, input, async (data, actor) => {
+  return runAdminAction(["products:create", "products:update"], productFormSchema, input, async (data, actor) => {
+    if (!can(actor, data.id ? "products:update" : "products:create")) throw new ActionError(FORBIDDEN);
     const before = data.id ? await prisma.product.findUnique({ where: { id: data.id }, select: snapshotSelect }) : null;
     if (data.id && (!before || before.deletedAt)) throw new ActionError("This product no longer exists.");
 
@@ -279,7 +281,7 @@ async function writeProduct(tx: Tx, productId: string, data: ProductFormData, be
 
 /** Slug field blur: is it free? (Saving re-checks.) */
 export async function checkSlug(input: unknown): Promise<ActionResult<{ available: boolean; suggestion: string }>> {
-  return runAdminAction("products:write", checkSlugSchema, input, async ({ slug, excludeId }) => {
+  return runAdminAction(["products:create", "products:update"], checkSlugSchema, input, async ({ slug, excludeId }) => {
     const taken = await prisma.product.findFirst({ where: { slug, id: excludeId ? { not: excludeId } : undefined }, select: { id: true } });
     return { available: !taken, suggestion: taken ? await freeSlug(slug) : slug };
   });
@@ -309,7 +311,7 @@ async function freeSku(base: string, db: Tx): Promise<string> {
  * Images point at the same Media rows (no file copies).
  */
 export async function duplicateProduct(input: unknown): Promise<ActionResult<{ id: string }>> {
-  return runAdminAction("products:write", productIdSchema, input, async ({ id }, actor) => {
+  return runAdminAction("products:create", productIdSchema, input, async ({ id }, actor) => {
     const src = await prisma.product.findUnique({
       where: { id },
       include: {
@@ -363,7 +365,7 @@ async function liveProducts(ids: string[]) {
 
 /** Product List bulk / row: Publish, Set to draft, Archive. */
 export async function bulkSetStatus(input: unknown): Promise<ActionResult<{ updated: number }>> {
-  return runAdminAction("products:write", bulkStatusSchema, input, async ({ ids, status }, actor) => {
+  return runAdminAction("products:update", bulkStatusSchema, input, async ({ ids, status }, actor) => {
     const rows = await liveProducts(ids);
     if (status === "PUBLISHED") {
       const empty = await prisma.product.findMany({ where: { id: { in: rows.map((r) => r.id) }, variants: { none: {} } }, select: { slug: true } });
@@ -390,7 +392,7 @@ export async function bulkSetStatus(input: unknown): Promise<ActionResult<{ upda
 
 /** Product List bulk: Change category. */
 export async function bulkSetCategory(input: unknown): Promise<ActionResult<{ updated: number }>> {
-  return runAdminAction("products:write", bulkCategorySchema, input, async ({ ids, categoryId }, actor) => {
+  return runAdminAction("products:update", bulkCategorySchema, input, async ({ ids, categoryId }, actor) => {
     const category = await prisma.category.findUnique({ where: { id: categoryId }, select: { slug: true } });
     if (!category) throw new ActionError("That category no longer exists.");
     const rows = await liveProducts(ids);
@@ -420,7 +422,7 @@ export async function bulkSetCategory(input: unknown): Promise<ActionResult<{ up
  * other product uses them.
  */
 export async function deleteProducts(input: unknown): Promise<ActionResult<{ archived: number; deleted: number }>> {
-  return runAdminAction("products:write", productIdsSchema, input, async ({ ids }, actor) => {
+  return runAdminAction("products:delete", productIdsSchema, input, async ({ ids }, actor) => {
     const rows = await liveProducts(ids);
     const ordered = await prisma.orderItem.findMany({
       where: { variant: { productId: { in: rows.map((r) => r.id) } } },
@@ -466,9 +468,9 @@ export async function deleteProducts(input: unknown): Promise<ActionResult<{ arc
 
 // ───────────────────────────── categories ─────────────────────────────
 
-/** Add Product → "+ Add category" inline (categories:write). */
+/** Add Product → "+ Add category" inline (categories:create). */
 export async function createCategoryInline(input: unknown): Promise<ActionResult<{ id: string; name: string }>> {
-  return runAdminAction("categories:write", inlineCategorySchema, input, async ({ name }, actor) => {
+  return runAdminAction("categories:create", inlineCategorySchema, input, async ({ name }, actor) => {
     const base = slugify(name) || "category";
     const row = await prisma.$transaction(async (tx) => {
       const existing = await tx.category.findFirst({ where: { name: { equals: name, mode: "insensitive" } }, select: { id: true, name: true } });

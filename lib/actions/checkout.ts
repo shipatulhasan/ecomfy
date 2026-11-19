@@ -191,7 +191,7 @@ export async function placeOrder(input: unknown): Promise<ActionResult<PlaceOrde
             stockState: "RELEASED",
             ...flags,
             placedIp: ip,
-            expiresAt: method === "COD" ? null : pendingPaymentDeadline(),
+            expiresAt: method === "COD" ? null : pendingPaymentDeadline(settings.pendingPaymentTtlMin),
             couponId: quote.couponCode ? await couponId(tx, quote.couponCode) : null,
             couponCode: quote.couponCode,
             items: {
@@ -327,7 +327,7 @@ export async function retryPayment(input: unknown): Promise<ActionResult<PlaceOr
             fxRate: display === "USD" ? rate : 1,
             displayTotalCents: toDisplayCents(totalCents, display, rate),
             status: target,
-            expiresAt: method === "COD" ? null : pendingPaymentDeadline(),
+            expiresAt: method === "COD" ? null : pendingPaymentDeadline(settings.pendingPaymentTtlMin),
             ...flags,
           },
         });

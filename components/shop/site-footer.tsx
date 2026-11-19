@@ -2,34 +2,37 @@ import Image from "next/image";
 import Link from "next/link";
 import { Container } from "@/components/shared/container";
 import { Logo } from "@/components/shared/logo";
+import { phoneLabel } from "@/lib/checkout/settings";
 import { siteConfig } from "@/lib/config/site";
+import { getStoreSettings } from "@/lib/queries/settings";
 
 /**
  * Dark footer (Figma "Footer"): brand block + 4 link groups, then copyright and
  * payment badges. Laptop+: 5 columns. Tablet: brand full width, groups in 4
  * columns. Mobile: groups 2 × 2; bottom bar stacks.
  */
-export function SiteFooter() {
-  const { description, phone, email, footerGroups, copyright, paymentBadges } = siteConfig;
+export async function SiteFooter() {
+  const { description, footerGroups, copyright, paymentBadges } = siteConfig;
+  const { store } = await getStoreSettings();
   return (
     <footer data-slot="site-footer" className="bg-footer text-footer-muted">
       <Container className="grid grid-cols-2 gap-x-6 gap-y-10 py-12 tablet:grid-cols-4 laptop:grid-cols-[448fr_224fr_225fr_223fr_200fr] laptop:gap-x-0 laptop:py-15">
         <div className="col-span-2 flex flex-col gap-4 tablet:col-span-4 laptop:col-span-1 laptop:pr-28">
-          <Logo tone="light" className="self-start" />
+          <Logo tone="light" name={store.name} logoUrl={store.logoUrl} className="self-start" />
           <p className="max-w-84 text-copy">{description}</p>
           <p className="flex flex-wrap items-center gap-x-4 gap-y-2 text-copy">
             <a
-              href={phone.href}
+              href={`tel:${store.contactPhone}`}
               className="border-b-2 border-primary pb-1.5 font-medium text-footer-foreground hover:text-primary"
             >
-              {phone.label}
+              {phoneLabel(store.contactPhone)}
             </a>
             <span>or</span>
             <a
-              href={email.href}
+              href={`mailto:${store.contactEmail}`}
               className="border-b-2 border-primary pb-1.5 font-medium text-footer-foreground hover:text-primary"
             >
-              {email.label}
+              {store.contactEmail}
             </a>
           </p>
         </div>

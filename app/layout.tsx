@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { CURRENCY_INIT_SCRIPT } from "@/components/shared/currency-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { appColors, appIcons, appName } from "@/lib/config/pwa";
+import { getStoreSettings } from "@/lib/queries/settings";
 import { siteUrl } from "@/lib/site-url";
 import "./globals.css";
 
@@ -21,15 +22,21 @@ const lato = Lato({
   weight: ["400", "700", "900"],
 });
 
-export const metadata: Metadata = {
-  metadataBase: siteUrl,
-  title: { default: "Ecomfy — Fresh & Healthy Organic Food", template: "%s · Ecomfy" },
-  description: "Fresh fruit, vegetables and organic groceries delivered.",
-  // Installed from the iOS home screen: open full screen. "default" status bar (dark
-  // text on white) because black-translucent would put white text over the white header.
-  appleWebApp: { capable: true, title: appName, statusBarStyle: "default" },
-  icons: { apple: appIcons.apple },
-};
+// Title template, description, favicon and share image: admin Settings → SEO / Store
+// (cached under the `settings` tag, so a save shows up on the next request).
+export async function generateMetadata(): Promise<Metadata> {
+  const { seo, store } = await getStoreSettings();
+  return {
+    metadataBase: siteUrl,
+    title: { default: "Ecomfy — Fresh & Healthy Organic Food", template: seo.titleTemplate },
+    description: seo.description,
+    // Installed from the iOS home screen: open full screen. "default" status bar (dark
+    // text on white) because black-translucent would put white text over the white header.
+    appleWebApp: { capable: true, title: appName, statusBarStyle: "default" },
+    icons: { apple: appIcons.apple, ...(store.faviconUrl && { icon: store.faviconUrl }) },
+    ...(seo.ogImageUrl && { openGraph: { images: [{ url: seo.ogImageUrl, width: 1200, height: 630 }] } }),
+  };
+}
 
 // viewport-fit=cover lets the app draw under notches / the home indicator; fixed and
 // sticky chrome pads itself with env(safe-area-inset-*) (app/globals.css → App shell).

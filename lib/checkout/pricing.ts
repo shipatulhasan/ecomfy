@@ -61,7 +61,9 @@ export function computeCheckoutQuote(
 ): CheckoutQuote {
   const { subtotalCents, discountCents } = cart.totals;
   const zone = zoneFor(settings, district);
-  const shippingCents = zone ? zone.rateCents : null;
+  const itemsCents = Math.max(0, subtotalCents - discountCents);
+  const freeShipping = settings.freeShippingThresholdCents !== null && itemsCents >= settings.freeShippingThresholdCents;
+  const shippingCents = zone ? (freeShipping ? 0 : zone.rateCents) : null;
   // The COD limit applies to what the courier collects before the COD fee.
   const payable = Math.max(0, subtotalCents - discountCents) + (shippingCents ?? 0);
   const methods = methodAvailability(settings, district, payable);

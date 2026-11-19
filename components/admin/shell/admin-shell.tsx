@@ -59,7 +59,7 @@ export async function AdminShell({ children }: { children: React.ReactNode }) {
               <UserMenu
                 name={user.name}
                 email={user.email}
-                roleLabel={ROLE_LABELS[user.role as Role] ?? "Staff"}
+                roleLabel={user.staffRoleName ?? ROLE_LABELS[user.role as Role] ?? "Staff"}
                 image={user.image ?? null}
               />
             </div>

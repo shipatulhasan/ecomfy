@@ -43,8 +43,9 @@ export async function signInAction(_prev: FormState, fd: FormData): Promise<Form
     async ({ email, password, rememberMe, callbackUrl }) => {
       const limited = await limitAuthAttempt("sign-in", email);
       if (limited) throw new ActionError(limited);
+      let res: unknown;
       try {
-        await auth.api.signInEmail({
+        res = await auth.api.signInEmail({
           body: { email, password, rememberMe: rememberMe ?? false },
           headers: await headers(),
         });
@@ -54,6 +55,8 @@ export async function signInAction(_prev: FormState, fd: FormData): Promise<Form
       }
       await clearAuthAttempts("sign-in", email);
       void pruneRateLimits().catch(() => {});
+      // Only staff can turn on 2FA (admin General Info → Security): finish on the admin verify step.
+      if (res && typeof res === "object" && "twoFactorRedirect" in res && res.twoFactorRedirect) redirect("/admin/login/verify");
       redirect(safeCallbackUrl(callbackUrl));
     },
   );

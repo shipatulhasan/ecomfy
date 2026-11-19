@@ -2,10 +2,11 @@ import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { prisma } from "@/lib/db";
 import { CacheTags } from "@/lib/cache-tags";
-import { DEFAULT_SETTINGS, type StoreSettings } from "@/lib/checkout/settings";
+import { DEFAULT_SETTINGS, SOCIAL_KEYS, type StoreSettings } from "@/lib/checkout/settings";
 
 /**
- * Store settings (COD rules, enabled gateways, USD rate) + shipping zones.
+ * Store settings (store profile, COD rules, enabled gateways, USD rate, upload
+ * rules, SEO defaults) + shipping zones.
  * Cached; admin settings actions invalidate with `updateTag(CacheTags.settings)`.
  */
 export async function getStoreSettings(): Promise<StoreSettings> {
@@ -30,6 +31,20 @@ export async function getStoreSettings(): Promise<StoreSettings> {
     couriers: row.couriers.length ? row.couriers : DEFAULT_SETTINGS.couriers,
     courierTrackingUrls: stringRecord(row.courierTrackingUrls),
     returnWindowDays: row.returnWindowDays,
+    freeShippingThresholdCents: row.freeShippingThresholdCents,
+    pendingPaymentTtlMin: row.pendingPaymentTtlMin,
+    maxUploadMb: row.maxUploadMb,
+    allowedUploadTypes: row.allowedUploadTypes.length ? row.allowedUploadTypes : DEFAULT_SETTINGS.allowedUploadTypes,
+    store: {
+      name: row.storeName,
+      logoUrl: row.logoUrl,
+      faviconUrl: row.faviconUrl,
+      contactEmail: row.contactEmail,
+      contactPhone: row.contactPhone,
+      address: row.address,
+      socialLinks: Object.fromEntries(Object.entries(stringRecord(row.socialLinks)).filter(([k]) => (SOCIAL_KEYS as readonly string[]).includes(k))),
+    },
+    seo: { titleTemplate: row.seoTitleTemplate, description: row.seoDescription, ogImageUrl: row.ogImageUrl },
     zones: zones.length
       ? zones.map((z) => ({
           id: z.id,

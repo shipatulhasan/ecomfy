@@ -6,8 +6,6 @@ import type { PaymentMethod } from "@/lib/generated/prisma/enums";
 
 export const PAYMENT_METHODS = ["BKASH", "SSLCOMMERZ", "COD"] as const satisfies readonly PaymentMethod[];
 
-/** Unpaid gateway orders expire (stock released) after this long. */
-export const PENDING_PAYMENT_TTL_MIN = 30;
 
 /** placeOrder / retryPayment: per user (or IP for guests). */
 export const PLACE_ORDER_LIMIT = { window: 10 * 60, max: 5 };

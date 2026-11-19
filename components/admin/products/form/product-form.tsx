@@ -1,5 +1,6 @@
 "use client";
 
+import { useUnsavedChangesGuard } from "@/components/shared/use-unsaved-guard";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ChevronDownIcon, CirclePlusIcon, ExternalLinkIcon, SaveIcon } from "lucide-react";
 import Link from "next/link";
@@ -136,26 +137,7 @@ export function ProductForm({
 
   // Unsaved-changes guard: tab close / reload, and in-app links (capture phase runs before next/link).
   const dirty = formState.isDirty && !saving && canWrite;
-  useEffect(() => {
-    if (!dirty) return;
-    const beforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
-    const onClick = (e: MouseEvent) => {
-      const a = (e.target as Element | null)?.closest?.("a[href]");
-      if (!a || a.getAttribute("target") === "_blank" || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
-      const url = new URL(a.getAttribute("href")!, location.href);
-      if (url.origin !== location.origin || url.pathname === location.pathname) return;
-      if (!window.confirm("You have unsaved changes. Leave without saving?")) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    };
-    window.addEventListener("beforeunload", beforeUnload);
-    document.addEventListener("click", onClick, true);
-    return () => {
-      window.removeEventListener("beforeunload", beforeUnload);
-      document.removeEventListener("click", onClick, true);
-    };
-  }, [dirty]);
+  useUnsavedChangesGuard(dirty);
 
   const onSlugBlur = async () => {
     if (!canWrite || !(await form.trigger("slug"))) return; // fresh format check, not a stale error

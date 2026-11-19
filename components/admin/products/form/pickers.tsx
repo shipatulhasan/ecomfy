@@ -15,7 +15,7 @@ export const dropdownClass =
 
 type Category = { id: string; name: string };
 
-/** Product Categories select + "+ Add category" (categories:write) inline. */
+/** Product Categories select + "+ Add category" (categories:create) inline. */
 export function CategoryPicker({
   id,
   value,

@@ -135,6 +135,10 @@ export const storageKeys = {
   library: (uuid: string, ext: string) => `media/${uuid}.${ext}`,
   product: (productId: string, uuid: string, ext: string) => `products/${productId}/${uuid}.${ext}`,
   category: (categoryId: string, uuid: string, ext: string) => `categories/${categoryId}/${uuid}.${ext}`,
+  /** Admin General Info → profile photo (re-encoded 256×256 WebP). */
+  avatar: (userId: string, uuid: string) => `avatars/${userId}/${uuid}.webp`,
+  /** Admin Settings → Store logo / favicon, SEO OG image. */
+  store: (purpose: "logo" | "favicon" | "og", uuid: string, ext: string) => `store/${purpose}-${uuid}.${ext}`,
   isTmp: (key: string) => key.startsWith("tmp/"),
   /** Legacy rows (pre-storage seed) keep a site-relative "/seed/…" key. */
   isLegacy: (key: string) => key.startsWith("/"),

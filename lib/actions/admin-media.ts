@@ -5,7 +5,8 @@ import { logAudit } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import type { MediaItem } from "@/lib/admin/media";
 import { inspectImage } from "@/lib/media/process";
-import { DEFAULT_MAX_UPLOAD_MB, UPLOAD_MIME, UPLOAD_URL_TTL_SECONDS, isUploadMime } from "@/lib/media/upload-rules";
+import { assertAllowed, uploadPolicy } from "@/lib/media/single-image";
+import { UPLOAD_MIME, UPLOAD_URL_TTL_SECONDS, isUploadMime } from "@/lib/media/upload-rules";
 import { mediaUrl, publicUrl, storage, storageKeys } from "@/lib/storage";
 import { confirmUploadSchema, mediaAltSchema, mediaIdsSchema, uploadRequestSchema } from "@/lib/validations/admin-product";
 import { ActionError, type ActionResult } from "./result";
@@ -22,21 +23,18 @@ import { runAdminAction } from "./safe-action";
  * The Next server never proxies file bytes from the client.
  */
 
-async function maxUploadMb(): Promise<number> {
-  const s = await prisma.settings.findUnique({ where: { id: "default" }, select: { maxUploadMb: true } });
-  return s?.maxUploadMb ?? DEFAULT_MAX_UPLOAD_MB;
-}
-
 /** Keep only a display name; it never becomes part of the object key. */
 const displayName = (name: string) => name.replace(/^.*[\\/]/, "").replace(/[\u0000-\u001f]/g, "").slice(0, 200) || "image";
 
 /** Product and category forms share the uploader (presigned PUT → confirmUpload). */
-const UPLOADERS = ["products:write", "categories:write"] as const;
+const UPLOADERS = ["products:create", "products:update", "categories:create", "categories:update"] as const;
 
 export async function getUploadUrl(input: unknown): Promise<ActionResult<{ key: string; url: string; maxMb: number }>> {
   return runAdminAction(UPLOADERS, uploadRequestSchema, input, async (data) => {
-    const maxMb = await maxUploadMb();
-    if (data.size > maxMb * 1024 * 1024) throw new ActionError(`Images must be ${maxMb} MB or smaller.`);
+    // Max size and allowed types: admin Settings → Orders & Media.
+    const policy = await uploadPolicy();
+    assertAllowed(data.mime, data.size, policy);
+    const maxMb = policy.maxMb;
     const ext = UPLOAD_MIME[data.mime];
     const key = data.scope === "library" ? storageKeys.library(randomUUID(), ext) : storageKeys.tmp(randomUUID(), ext);
     const url = await storage.getUploadUrl(key, data.mime, data.size, UPLOAD_URL_TTL_SECONDS);
@@ -56,9 +54,9 @@ export async function confirmUpload(input: unknown): Promise<ActionResult<MediaI
       await storage.delete([data.key]).catch(() => {});
       throw new ActionError(msg);
     };
-    const maxMb = await maxUploadMb();
-    if (head.size <= 0 || head.size > maxMb * 1024 * 1024) await reject(`Images must be ${maxMb} MB or smaller.`);
-    if (!head.mime || !isUploadMime(head.mime)) await reject("Only JPG, PNG, WebP or AVIF images.");
+    const policy = await uploadPolicy();
+    if (head.size <= 0 || head.size > policy.maxMb * 1024 * 1024) await reject(`Images must be ${policy.maxMb} MB or smaller.`);
+    if (!head.mime || !isUploadMime(head.mime) || !(policy.allowed as string[]).includes(head.mime)) await reject("That image type isn't allowed.");
     // The extension in the key was chosen from the validated mime.
     const ext = data.key.split(".").pop();
     if (UPLOAD_MIME[head.mime as keyof typeof UPLOAD_MIME] !== ext) await reject("The file type changed during upload.");
@@ -91,7 +89,7 @@ export async function confirmUpload(input: unknown): Promise<ActionResult<MediaI
 }
 
 export async function updateMediaAlt(input: unknown): Promise<ActionResult<{ id: string; alt: string }>> {
-  return runAdminAction("products:write", mediaAltSchema, input, async (data, actor) => {
+  return runAdminAction(["products:create", "products:update"], mediaAltSchema, input, async (data, actor) => {
     return prisma.$transaction(async (tx) => {
       const before = await tx.media.findUnique({ where: { id: data.id }, select: { alt: true } });
       if (!before) throw new ActionError("That image no longer exists.");
@@ -107,7 +105,7 @@ export async function updateMediaAlt(input: unknown): Promise<ActionResult<{ id:
  * variant still uses an image: detach it from the product first.
  */
 export async function deleteMedia(input: unknown): Promise<ActionResult<{ deleted: number }>> {
-  return runAdminAction("products:write", mediaIdsSchema, input, async (data, actor) => {
+  return runAdminAction("products:delete", mediaIdsSchema, input, async (data, actor) => {
     const rows = await prisma.media.findMany({
       where: { id: { in: data.ids } },
       select: {

@@ -1,10 +1,13 @@
 /**
  * pnpm admin:invite <email> <STAFF|ADMIN> [--first Name] [--last Name]
  *
+ * STAFF gets the Manager role (change it in Control Authority); ADMIN = Super Admin.
+ *
  * Creates an admin invite (48h, single use) and prints the /admin/register link.
  * For dev / ops; the UI equivalent is Control Authority → Add Members. Audited.
  */
 import { inviteExpiry, inviteUrl, newInviteToken } from "../lib/admin/invites";
+import { DEFAULT_STAFF_ROLE_ID, SUPER_ADMIN_ROLE_ID } from "../lib/admin/roles";
 import { flags, prisma } from "./lib-db";
 
 async function main() {
@@ -27,7 +30,7 @@ async function main() {
       data: { revokedAt: new Date() },
     });
     const invite = await tx.adminInvite.create({
-      data: { email, role, firstName: f.first || email.split("@")[0]!, lastName: f.last || null, tokenHash, expiresAt: inviteExpiry() },
+      data: { email, role, staffRoleId: role === "ADMIN" ? SUPER_ADMIN_ROLE_ID : DEFAULT_STAFF_ROLE_ID, firstName: f.first || email.split("@")[0]!, lastName: f.last || null, tokenHash, expiresAt: inviteExpiry() },
     });
     await tx.auditLog.create({
       data: { actorId: null, action: "invite.create", entity: "AdminInvite", entityId: invite.id, after: { email, role, via: "cli" } },

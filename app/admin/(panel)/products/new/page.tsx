@@ -22,7 +22,7 @@ export default function NewProductPage() {
 
 async function Gate() {
   const user = await requireStaff("/admin/products/new");
-  if (!can(user, "products:write")) return <Forbidden />;
+  if (!can(user, "products:create")) return <Forbidden />;
   const [options, sku, maxMb] = await Promise.all([getProductFilterOptions(), nextProductSku(), getMaxUploadMb()]);
 
   const initial: ProductFormValues = {
@@ -61,7 +61,7 @@ async function Gate() {
         tags={options.tags}
         maxMb={maxMb}
         canWrite
-        canAddCategory={can(user, "categories:write")}
+        canAddCategory={can(user, "categories:create")}
       />
     </Container>
   );

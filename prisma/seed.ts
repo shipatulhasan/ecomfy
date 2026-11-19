@@ -22,6 +22,7 @@ import { derivePrice, UNLIMITED_STOCK } from "../lib/admin/products/rules";
 import { neonStorage, storageKeys } from "../lib/storage/core";
 import { pgConnectionString } from "../lib/db/url";
 import { hashInviteToken, inviteExpiry, inviteUrl, newInviteToken } from "../lib/admin/invites";
+import { DEFAULT_STAFF_ROLE_ID, SUPER_ADMIN_ROLE_ID } from "../lib/admin/roles";
 import { seedDashboard } from "./seed-dashboard";
 import { categories, subcategories, chineseCabbageReviews, products, REVIEW_BODIES, slugify, type SeedProduct, type SeedVariant } from "./seed-data";
 
@@ -157,6 +158,8 @@ type SeedUser = {
   name: string;
   email: string;
   role?: "ADMIN" | "STAFF" | "CUSTOMER";
+  /** StaffRole id (seeded by the team_settings migration). */
+  staffRoleId?: string;
   status?: "ACTIVE" | "INACTIVE" | "VIP";
   phone?: string;
   image?: string;
@@ -169,9 +172,12 @@ type SeedUser = {
 // User Dashboard, admin Customers table and PDP Customer Feedback.
 const users: SeedUser[] = [
   // Dev fixture only: production bootstraps its first admin with `pnpm admin:create`.
-  { key: "admin", name: "Wade Warren", email: "admin@ecomfy.test", role: "ADMIN", phone: "01711000120", createdDaysAgo: 400 },
-  // STAFF: orders, products, categories, customers; no coupons / transactions / settings / members.
-  { key: "staff", name: "Olivia Rhye", email: "staff@ecomfy.test", role: "STAFF", phone: "01711000121", createdDaysAgo: 120 },
+  { key: "admin", name: "Wade Warren", email: "admin@ecomfy.test", role: "ADMIN", staffRoleId: SUPER_ADMIN_ROLE_ID, phone: "01711000120", createdDaysAgo: 400 },
+  // Manager: orders, products, customers, transactions (read); no coupons / settings / members.
+  { key: "staff", name: "Olivia Rhye", email: "staff@ecomfy.test", role: "STAFF", staffRoleId: DEFAULT_STAFF_ROLE_ID, phone: "01711000121", createdDaysAgo: 120 },
+  // Control Authority role list: one member per preset.
+  { key: "editor", name: "Esther Howard", email: "editor@ecomfy.test", role: "STAFF", staffRoleId: "role_editor", phone: "01711000122", createdDaysAgo: 90 },
+  { key: "support", name: "Devon Lane", email: "support@ecomfy.test", role: "STAFF", staffRoleId: "role_support", phone: "01711000123", createdDaysAgo: 60 },
   { key: "dianne", name: "Dianne Russell", email: "dianne.russell@ecomfy.test", phone: "01712555011", createdDaysAgo: 600 },
   { key: "john", name: "John Doe", email: "john.doe@ecomfy.test", phone: "01813000001", createdDaysAgo: 320 },
   { key: "jane", name: "Jane Smith", email: "jane.smith@ecomfy.test", phone: "01913000002", status: "INACTIVE", createdDaysAgo: 280 },
@@ -190,7 +196,7 @@ async function reset() {
   await prisma.$executeRawUnsafe(`
     TRUNCATE "AuditLog", "AdminInvite", "OrderStatusHistory", "Payment", "OrderItem", "Order", "Settings", "ShippingZone", "GatewayToken", "CartItem", "Cart", "Wishlist", "Review", "ProductAttribute",
              "ProductImage", "Media", "SlugRedirect", "Variant", "Product", "Category", "Address", "Coupon",
-             "Session", "Account", "Verification", "User"
+             "Session", "Account", "Verification", "TwoFactor", "User"
     RESTART IDENTITY CASCADE`);
 }
 
@@ -208,6 +214,7 @@ async function seedUsers() {
         email: u.email,
         emailVerified: u.emailVerified ?? true,
         role: u.role ?? "CUSTOMER",
+        staffRoleId: u.staffRoleId,
         status: u.status ?? "ACTIVE",
         phone: u.phone,
         image: u.image,
@@ -713,9 +720,9 @@ async function main() {
   const expired = newInviteToken();
   await prisma.adminInvite.createMany({
     data: [
-      { email: "new.staff@ecomfy.test", firstName: "Nadia", lastName: "Islam", role: "STAFF", tokenHash: pending.tokenHash, invitedById: u.admin!, expiresAt: inviteExpiry() },
-      { email: "late.staff@ecomfy.test", firstName: "Rafiq", lastName: "Uddin", role: "STAFF", tokenHash: expired.tokenHash, invitedById: u.admin!, expiresAt: new Date(Date.now() - 3_600_000), createdAt: new Date(Date.now() - 49 * 3_600_000) },
-      { email: "staff@ecomfy.test", firstName: "Olivia", lastName: "Rhye", role: "STAFF", tokenHash: hashInviteToken("seed-used-invite-token-olivia"), invitedById: u.admin!, expiresAt: inviteExpiry(daysAgo(120)), acceptedAt: daysAgo(120), acceptedUserId: u.staff!, createdAt: daysAgo(121) },
+      { email: "new.staff@ecomfy.test", firstName: "Nadia", lastName: "Islam", role: "STAFF", staffRoleId: "role_editor", tokenHash: pending.tokenHash, invitedById: u.admin!, expiresAt: inviteExpiry() },
+      { email: "late.staff@ecomfy.test", firstName: "Rafiq", lastName: "Uddin", role: "STAFF", staffRoleId: DEFAULT_STAFF_ROLE_ID, tokenHash: expired.tokenHash, invitedById: u.admin!, expiresAt: new Date(Date.now() - 3_600_000), createdAt: new Date(Date.now() - 49 * 3_600_000) },
+      { email: "staff@ecomfy.test", firstName: "Olivia", lastName: "Rhye", role: "STAFF", staffRoleId: DEFAULT_STAFF_ROLE_ID, tokenHash: hashInviteToken("seed-used-invite-token-olivia"), invitedById: u.admin!, expiresAt: inviteExpiry(daysAgo(120)), acceptedAt: daysAgo(120), acceptedUserId: u.staff!, createdAt: daysAgo(121) },
     ],
   });
   await prisma.auditLog.createMany({
@@ -744,7 +751,9 @@ async function main() {
   console.log("\nDemo accounts (passwords come from .env, not printed):");
   console.table([
     { role: "admin (/admin/login)", email: "admin@ecomfy.test", password: "SEED_PASSWORD" },
-    { role: "staff (/admin/login)", email: "staff@ecomfy.test", password: "SEED_PASSWORD" },
+    { role: "staff, Manager (/admin/login)", email: "staff@ecomfy.test", password: "SEED_PASSWORD" },
+    { role: "staff, Editor (/admin/login)", email: "editor@ecomfy.test", password: "SEED_PASSWORD" },
+    { role: "staff, Support (/admin/login)", email: "support@ecomfy.test", password: "SEED_PASSWORD" },
     { role: "customer (orders, cart, wishlist)", email: "dianne.russell@ecomfy.test", password: "CUSTOMER_PASSWORD" },
     { role: "customer (email not verified)", email: "arif.hossain@ecomfy.test", password: "CUSTOMER_PASSWORD" },
   ]);

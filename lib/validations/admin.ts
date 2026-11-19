@@ -31,8 +31,24 @@ export const inviteMemberSchema = z.object({
   lastName: z.string().trim().max(50).optional().default(""),
   email,
   phone: z.union([z.literal(""), bdPhoneSchema]).optional().default(""),
-  role: z.enum(["STAFF", "ADMIN"], { error: "Choose a role" }),
+  staffRoleId: z.string().trim().min(1, "Choose a role").max(64),
+  /** Set after "This email has a customer account — upgrade to staff?" is confirmed. */
+  upgrade: z.preprocess((v) => v === true || v === "on" || v === "true" || v === "1", z.boolean()).optional().default(false),
 });
+
+/** /admin/login/verify: authenticator code (6 digits) or a backup code. */
+export const twoFactorSignInSchema = z
+  .object({
+    code: z.string().trim().min(6, "Enter the code").max(32),
+    mode: z.enum(["totp", "backup"]).default("totp"),
+    trustDevice: z.preprocess((v) => v === true || v === "on" || v === "true", z.boolean()).optional(),
+    callbackUrl: z.string().max(512).optional(),
+  })
+  .refine((v) => v.mode !== "totp" || /^\d{6}$/.test(v.code.replace(/\s/g, "")), {
+    path: ["code"],
+    message: "Enter the 6-digit code from your authenticator app",
+  })
+  .transform((v) => ({ ...v, code: v.mode === "totp" ? v.code.replace(/\s/g, "") : v.code }));
 
 export const inviteIdSchema = z.object({ id: z.string().min(1).max(64) });
 

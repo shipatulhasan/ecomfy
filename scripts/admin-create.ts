@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { hashPassword } from "better-auth/crypto";
 import { flags, prisma } from "./lib-db";
+import { SUPER_ADMIN_ROLE_ID } from "../lib/admin/roles";
 
 async function ask(question: string, hidden = false): Promise<string> {
   if (!hidden) {
@@ -66,11 +67,11 @@ async function main() {
     const id = found?.id ?? randomUUID();
     if (found) {
       // Promote an existing account (e.g. the owner's storefront account) and set its password.
-      await tx.user.update({ where: { id }, data: { role: "ADMIN", emailVerified: true } });
+      await tx.user.update({ where: { id }, data: { role: "ADMIN", staffRoleId: SUPER_ADMIN_ROLE_ID, deactivatedAt: null, emailVerified: true } });
       await tx.account.deleteMany({ where: { userId: id, providerId: "credential" } });
       await tx.session.deleteMany({ where: { userId: id } });
     } else {
-      await tx.user.create({ data: { id, name, email, emailVerified: true, role: "ADMIN" } });
+      await tx.user.create({ data: { id, name, email, emailVerified: true, role: "ADMIN", staffRoleId: SUPER_ADMIN_ROLE_ID } });
     }
     await tx.account.create({ data: { id: randomUUID(), accountId: id, providerId: "credential", userId: id, password: hash } });
     await tx.auditLog.create({

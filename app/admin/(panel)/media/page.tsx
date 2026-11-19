@@ -4,7 +4,7 @@ import { MediaLibrary } from "@/components/admin/media/library";
 import { Forbidden } from "@/components/admin/shell/forbidden";
 import { Container } from "@/components/shared/container";
 import { Skeleton } from "@/components/ui/skeleton";
-import { can } from "@/lib/auth/permissions";
+import { canAny } from "@/lib/auth/permissions";
 import { requireStaff } from "@/lib/auth-guards";
 import { getMaxUploadMb, listMedia, parseMediaParams } from "@/lib/queries/admin/products";
 
@@ -26,7 +26,7 @@ export default function MediaPage({ searchParams }: PageProps<"/admin/media">) {
 
 async function Gate({ searchParams }: Pick<PageProps<"/admin/media">, "searchParams">) {
   const user = await requireStaff("/admin/media");
-  if (!can(user, "products:write")) return <Forbidden />;
+  if (!canAny(user, ["products:create", "products:update", "categories:create", "categories:update"])) return <Forbidden />;
   const params = parseMediaParams(await searchParams);
   const [page, maxMb] = await Promise.all([listMedia(params), getMaxUploadMb()]);
   return (

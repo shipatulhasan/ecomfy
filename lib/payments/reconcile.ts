@@ -1,6 +1,6 @@
 import "server-only";
-import { PENDING_PAYMENT_TTL_MIN } from "@/lib/config/checkout";
 import { prisma } from "@/lib/db";
+import { getStoreSettings } from "@/lib/queries/settings";
 import { bkashGatewayAnswer } from "./bkash";
 import { paymentLog, paymentWarn, redact } from "./log";
 import { sslczGatewayAnswer } from "./sslcommerz";
@@ -113,7 +113,7 @@ export async function reconcilePayment(id: string, tag = "[reconcile]"): Promise
     return done("paid", answer.status, "The gateway confirmed the payment. The transaction and its order are updated.", after);
   }
 
-  if (answer.state === "failed" || (answer.state === "pending" && answer.abandoned && ageMin > PENDING_PAYMENT_TTL_MIN)) {
+  if (answer.state === "failed" || (answer.state === "pending" && answer.abandoned && ageMin > (await getStoreSettings()).pendingPaymentTtlMin)) {
     if (p.status === "SUCCEEDED" || p.status === "REFUNDED") {
       log.push(paymentWarn(tag, "gateway-disagrees", { ours: p.status, gateway: answer.status, action: "review" }));
       await appendPaymentLog(p.id, ...log);
