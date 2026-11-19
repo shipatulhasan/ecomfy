@@ -30,3 +30,11 @@ export async function formFields(request: Request): Promise<Record<string, strin
   }
   return out;
 }
+
+/**
+ * Dev-only switch (PAYMENTS_DROP_CALLBACK=1, never in production): success
+ * callbacks and IPNs are ignored, as if the gateway's callback never arrived, so
+ * reconciliation (admin "Verify with gateway", /api/cron/reconcile-payments) can
+ * be exercised against the sandbox. The attempt stays PENDING.
+ */
+export const dropCallbacks = () => process.env.NODE_ENV !== "production" && process.env.PAYMENTS_DROP_CALLBACK === "1";

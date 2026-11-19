@@ -1,13 +1,13 @@
 import { ArrowLeftIcon, ExternalLinkIcon, PhoneIcon, ShieldAlertIcon, TriangleAlertIcon, UserRoundIcon } from "lucide-react";
 import Link from "next/link";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/shared/order-status-badge";
+import { DetailCard, DetailRow } from "@/components/admin/detail-blocks";
 import { StatusChip } from "@/components/shared/status-chip";
 import { formatDhaka } from "@/lib/admin/date-range";
 import { adminOrderHref, METHOD_LABELS, orderRef } from "@/lib/admin/orders/params";
-import type { PaymentAttemptStatus } from "@/lib/generated/prisma/enums";
 import { formatPrice } from "@/lib/money";
 import { emailKindFor } from "@/lib/orders/email-kind";
-import { ADMIN_STATUS_LABELS, type StatusTone } from "@/lib/orders/status";
+import { ADMIN_STATUS_LABELS, ATTEMPT_LABEL, ATTEMPT_TONE } from "@/lib/orders/status";
 import type { AdminOrderDetail } from "@/lib/queries/admin/orders";
 import type { AddressSnapshot } from "@/lib/queries/orders";
 import { cn } from "@/lib/utils";
@@ -86,29 +86,8 @@ export function AdminOrderDetailView({
 
 // ───────────────────────────── building blocks ─────────────────────────────
 
-/** Add Products.png card: white, 12 radius, 24 padding (16 on mobile). */
-function Card({ title, titleId, action, className, children }: { title: React.ReactNode; titleId: string; action?: React.ReactNode; className?: string; children: React.ReactNode }) {
-  return (
-    <section aria-labelledby={titleId} className={cn("min-w-0 rounded-xl bg-card p-4 tablet:p-6", className)}>
-      <div className="flex min-h-8 items-center justify-between gap-3">
-        <h2 id={titleId} className="text-h2 text-foreground">
-          {title}
-        </h2>
-        {action}
-      </div>
-      <div className="mt-4">{children}</div>
-    </section>
-  );
-}
-
-function Row({ label, children, className }: { label: React.ReactNode; children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn("flex items-start justify-between gap-4 py-2 text-copy", className)}>
-      <dt className="shrink-0 text-text-body">{label}</dt>
-      <dd className="min-w-0 text-right font-medium break-words text-foreground">{children}</dd>
-    </div>
-  );
-}
+const Card = DetailCard;
+const Row = DetailRow;
 
 const dateTime = (iso: string) => formatDhaka(iso, "dd MMM yyyy, h:mm a");
 
@@ -409,22 +388,6 @@ function AddressCard({ title, address, extra, className }: { title: string; addr
   );
 }
 
-const ATTEMPT_TONE: Record<PaymentAttemptStatus, StatusTone> = {
-  INITIATED: "neutral",
-  PENDING: "warning",
-  SUCCEEDED: "success",
-  FAILED: "danger",
-  CANCELLED: "neutral",
-  EXPIRED: "neutral",
-};
-const ATTEMPT_LABEL: Record<PaymentAttemptStatus, string> = {
-  INITIATED: "Started",
-  PENDING: "Pending",
-  SUCCEEDED: "Succeeded",
-  FAILED: "Failed",
-  CANCELLED: "Cancelled",
-  EXPIRED: "Expired",
-};
 
 function PaymentCard({ order, canRefund, className }: { order: AdminOrderDetail; canRefund: boolean; className?: string }) {
   const paid = order.payments.find((p) => p.status === "SUCCEEDED");

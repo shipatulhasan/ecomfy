@@ -29,6 +29,7 @@ import {
 import { DISTRICTS } from "@/lib/config/districts";
 import { ADMIN_STATUS_LABELS, PAYMENT_STATUS_LABELS } from "@/lib/orders/status";
 import { cn } from "@/lib/utils";
+import { invoicesHref, printInvoice } from "../print-invoice";
 
 const ALL = "__all";
 const iconBox = "tap-target grid size-10 shrink-0 place-items-center rounded-lg border border-border bg-card text-foreground transition-colors hover:bg-muted";
@@ -65,7 +66,7 @@ export function OrderListToolbar({ params, counts }: { params: OrderListParams; 
 
   const query = orderParamsQuery(params, { page: params.page });
   const exportHref = `/admin/orders/export${query ? `?${query}` : ""}`;
-  const printHref = `/admin/orders/invoices?${query ? `${query}&` : ""}print=1`;
+  const printHref = invoicesHref(query);
 
   return (
     <div className="flex flex-col gap-3">
@@ -143,10 +144,8 @@ export function OrderListToolbar({ params, counts }: { params: OrderListParams; 
                   <DownloadIcon aria-hidden /> Export CSV (current filters)
                 </a>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <a href={printHref} target="_blank" rel="noreferrer">
-                  <PrinterIcon aria-hidden /> Print invoices (this page)
-                </a>
+              <DropdownMenuItem onSelect={() => printInvoice(printHref)}>
+                <PrinterIcon aria-hidden /> Print invoices (this page)
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => router.refresh()}>
                 <RefreshCwIcon aria-hidden /> Refresh

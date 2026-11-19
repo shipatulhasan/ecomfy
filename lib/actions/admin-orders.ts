@@ -43,6 +43,7 @@ const NOT_FOUND = "We couldn't find that order.";
 
 function afterOrderChange(emails: { orderId: string; kind: OrderEmailKind | null }[] = []) {
   updateTag(CacheTags.orders);
+  updateTag(CacheTags.payments);
   for (const e of emails) if (e.kind) queueOrderEmail(e.orderId, e.kind);
   refresh();
 }
@@ -203,7 +204,17 @@ export async function recordRefund(input: unknown): Promise<ActionResult<{ refun
   return runAdminAction("orders:refund", refundSchema, input, async (data, actor) => {
     const order = await prisma.order.findUnique({
       where: { number: data.orderNumber },
-      select: { id: true, version: true, paymentStatus: true, totalCents: true, refundedCents: true },
+      select: {
+        id: true,
+        version: true,
+        paymentStatus: true,
+        totalCents: true,
+        refundedCents: true,
+        orderNumber: true,
+        userId: true,
+        paymentMethod: true,
+        currency: true,
+      },
     });
     if (!order) throw new ActionError(NOT_FOUND);
     if (order.paymentStatus !== "PAID") throw new ActionError("Only paid orders can be refunded.");
@@ -221,10 +232,32 @@ export async function recordRefund(input: unknown): Promise<ActionResult<{ refun
         data: { refundedCents, version: { increment: 1 }, ...(full && { paymentStatus: "REFUNDED" }) },
       });
       if (n.count !== 1) throw new ActionError(STALE_MESSAGE);
-      const refund = await tx.refund.create({
-        data: { orderId: order.id, amountCents, note: data.note, actorId: actor.id },
+      // Ledger row (admin Transactions): a REFUND with a negative amount.
+      const refundNo = (await tx.refund.count({ where: { orderId: order.id } })) + 1;
+      const payment = await tx.payment.create({
+        data: {
+          orderId: order.id,
+          userId: order.userId,
+          type: "REFUND",
+          method: order.paymentMethod,
+          reference: `${order.orderNumber}-R${refundNo}`,
+          amountCents: -amountCents,
+          currency: order.currency,
+          status: "SUCCEEDED",
+          completedAt: new Date(),
+        },
         select: { id: true },
       });
+      const refund = await tx.refund.create({
+        data: { orderId: order.id, amountCents, note: data.note, actorId: actor.id, paymentId: payment.id },
+        select: { id: true },
+      });
+      if (full) {
+        await tx.payment.updateMany({
+          where: { orderId: order.id, type: { not: "REFUND" }, status: "SUCCEEDED" },
+          data: { status: "REFUNDED" },
+        });
+      }
       await recordInternalNote(tx, order.id, `Refunded ${formatPrice(amountCents)}${full ? " (full)" : ""}: ${data.note}`, actor.id);
       await logAudit(
         {
@@ -233,7 +266,7 @@ export async function recordRefund(input: unknown): Promise<ActionResult<{ refun
           entity: "Order",
           entityId: order.id,
           before: { paymentStatus: order.paymentStatus, refundedCents: order.refundedCents },
-          after: { paymentStatus: full ? "REFUNDED" : "PAID", refundedCents, refundId: refund.id, amountCents },
+          after: { paymentStatus: full ? "REFUNDED" : "PAID", refundedCents, refundId: refund.id, paymentId: payment.id, amountCents },
         },
         tx,
       );

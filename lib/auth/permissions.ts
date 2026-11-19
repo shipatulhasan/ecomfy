@@ -17,7 +17,9 @@ export const PERMISSIONS = [
   "categories:write",
   "customers:read",
   "coupons:write",
-  "payments:read",
+  "payments:read", // admin Transactions (STAFF sees masked customer contact)
+  "payments:reconcile", // "Verify with gateway" (ADMIN only)
+  "payments:export", // Transactions CSV (ADMIN only)
   "settings:write",
   "users:manage",
 ] as const;
@@ -35,6 +37,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "products:write",
     "categories:read", // read-only: creating / editing categories is ADMIN-only
     "customers:read",
+    "payments:read",
   ],
   ADMIN: PERMISSIONS,
 };

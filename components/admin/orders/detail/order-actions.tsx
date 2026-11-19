@@ -11,7 +11,8 @@ import { orderRef } from "@/lib/admin/orders/params";
 import type { OrderStatus, PaymentMethod, PaymentStatus } from "@/lib/generated/prisma/enums";
 import { adminNextStatuses, primaryNext, transitionLabel } from "@/lib/orders/transitions";
 import { cn } from "@/lib/utils";
-import { invoiceHref, ReturnDialog, STATUS_ICON } from "../list/row-actions";
+import { ReturnDialog, STATUS_ICON } from "../list/row-actions";
+import { invoiceHref, printInvoice } from "../print-invoice";
 import { CancelDialog, ShipDialog } from "../status-dialogs";
 import { useOrderAction } from "../use-order-action";
 
@@ -78,10 +79,8 @@ export function OrderActionsCard(props: Props) {
               </Button>
             );
           })}
-          <Button asChild size="lg" variant="outline" className="h-11">
-            <a href={invoiceHref(props.order.number)} target="_blank" rel="noreferrer">
-              <PrinterIcon aria-hidden /> Invoice
-            </a>
+          <Button size="lg" variant="outline" className="h-11" onClick={() => printInvoice(invoiceHref(props.order.number))}>
+            <PrinterIcon aria-hidden /> Invoice
           </Button>
           {props.canUpdate && props.hasEmail && (
             <Button size="lg" variant="outline" className="h-11" disabled={a.pending} onClick={a.resend}>
@@ -137,9 +136,9 @@ export function OrderActionsBar(props: Props) {
               );
             })}
             <li>
-              <a href={invoiceHref(props.order.number)} target="_blank" rel="noreferrer" className={item}>
+              <button type="button" className={item} onClick={pick(() => printInvoice(invoiceHref(props.order.number)))}>
                 <PrinterIcon aria-hidden className="size-5" /> Print invoice
-              </a>
+              </button>
             </li>
             {props.canUpdate && props.hasEmail && (
               <li>

@@ -76,7 +76,7 @@ export async function cancelOrder(input: unknown): Promise<ActionResult<{ number
       });
       if (claimed.count !== 1) throw new ActionError("This order can no longer be cancelled.");
       await tx.payment.updateMany({
-        where: { orderId: order.id, status: { in: ["INITIATED", "PENDING"] } },
+        where: { orderId: order.id, type: { not: "REFUND" }, status: { in: ["INITIATED", "PENDING"] } },
         data: { status: "CANCELLED", failReason: "Order cancelled by customer", completedAt: new Date() },
       });
       await releaseStock(tx, order.id);

@@ -23,7 +23,7 @@ import { can, type Permission } from "@/lib/auth/permissions";
  * Plain data + icon components: imported by client leaves directly (icons can't be
  * passed as props across the server/client boundary).
  */
-export type AdminBadgeKey = "pendingOrders";
+export type AdminBadgeKey = "pendingOrders" | "paymentsAttention";
 
 export type AdminNavItem = {
   label: string;
@@ -49,7 +49,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       { label: "Customers", href: "/admin/customers", icon: UsersIcon, permission: "customers:read" },
       { label: "Coupon Code", href: "/admin/coupons", icon: TicketIcon, permission: "coupons:write" },
       { label: "Categories", href: "/admin/categories", icon: BlendIcon, permission: "categories:read" },
-      { label: "Transaction", href: "/admin/transactions", icon: CreditCardIcon, permission: "payments:read" },
+      { label: "Transaction", href: "/admin/transactions", icon: CreditCardIcon, permission: "payments:read", badge: "paymentsAttention" },
     ],
   },
   {

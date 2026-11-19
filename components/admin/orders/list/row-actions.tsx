@@ -21,6 +21,7 @@ import type { OrderStatus } from "@/lib/generated/prisma/enums";
 import { adminNextStatuses, transitionLabel } from "@/lib/orders/transitions";
 import type { AdminOrderRow } from "@/lib/queries/admin/orders";
 import { cn } from "@/lib/utils";
+import { invoiceHref, printInvoice } from "../print-invoice";
 import { CancelDialog, ShipDialog } from "../status-dialogs";
 import { useOrderAction } from "../use-order-action";
 
@@ -34,7 +35,6 @@ export const STATUS_ICON: Partial<Record<OrderStatus, typeof TruckIcon>> = {
   CANCELLED: BanIcon,
 };
 
-export const invoiceHref = (number: number) => `/admin/orders/${number}/invoice?print=1`;
 
 const DONE = { PROCESSING: "confirmed", DELIVERED: "marked delivered", RETURNED: "marked returned" } as const;
 
@@ -74,10 +74,8 @@ export function OrderRowActions({ row, ctx }: { row: AdminOrderRow; ctx: Ctx }) 
             </>
           )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <a href={invoiceHref(row.number)} target="_blank" rel="noreferrer">
-              <PrinterIcon aria-hidden /> Print invoice
-            </a>
+          <DropdownMenuItem onSelect={() => printInvoice(invoiceHref(row.number))}>
+            <PrinterIcon aria-hidden /> Print invoice
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -126,9 +124,16 @@ export function OrderRowActionsSheet({ row, ctx }: { row: AdminOrderRow; ctx: Ct
             );
           })}
           <li>
-            <a href={invoiceHref(row.number)} target="_blank" rel="noreferrer" className={item}>
+            <button
+              type="button"
+              className={item}
+              onClick={() => {
+                setOpen(false);
+                printInvoice(invoiceHref(row.number));
+              }}
+            >
               <PrinterIcon aria-hidden className="size-5" /> Print invoice
-            </a>
+            </button>
           </li>
         </ul>
       </BottomSheet>

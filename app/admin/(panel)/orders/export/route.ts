@@ -2,6 +2,7 @@ import { connection } from "next/server";
 import { ActionError } from "@/lib/actions/result";
 import { formatDhaka } from "@/lib/admin/date-range";
 import { parseOrderParams } from "@/lib/admin/orders/params";
+import { csvCell as cell } from "@/lib/csv";
 import { EXPORT_LIMIT, listOrdersForExport, parseNumberList } from "@/lib/queries/admin/orders";
 
 /**
@@ -83,10 +84,4 @@ export async function GET(request: Request) {
       "X-Truncated": rows.length >= EXPORT_LIMIT ? "true" : "false",
     },
   });
-}
-
-/** RFC 4180 quoting + spreadsheet formula-injection guard. */
-function cell(v: string): string {
-  const safe = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
-  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }

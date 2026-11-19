@@ -1,5 +1,5 @@
 import { paymentMethodMeta } from "@/lib/config/checkout";
-import type { OrderStatus, PaymentMethod, PaymentStatus } from "@/lib/generated/prisma/enums";
+import type { OrderStatus, PaymentAttemptStatus, PaymentMethod, PaymentStatus, PaymentType } from "@/lib/generated/prisma/enums";
 
 /**
  * Customer-facing order status (account dashboard, order history, order details).
@@ -127,3 +127,30 @@ export function orderProgressStep(status: OrderStatus): number | null {
 
 /** Checkout's labels (lib/config/checkout.ts), e.g. "Cash on Delivery". */
 export const paymentMethodLabel = (m: PaymentMethod): string => paymentMethodMeta[m].label;
+
+// ───────────────────────────── payment rows (attempts / ledger) ─────────────────────────────
+
+/** One Payment row's status (order detail attempts, admin Transactions). */
+export const ATTEMPT_TONE: Record<PaymentAttemptStatus, StatusTone> = {
+  INITIATED: "neutral",
+  PENDING: "warning",
+  SUCCEEDED: "success",
+  FAILED: "danger",
+  CANCELLED: "danger",
+  EXPIRED: "neutral",
+  REFUNDED: "info",
+};
+export const ATTEMPT_LABEL: Record<PaymentAttemptStatus, string> = {
+  INITIATED: "Started",
+  PENDING: "Pending",
+  SUCCEEDED: "Complete",
+  FAILED: "Failed",
+  CANCELLED: "Canceled",
+  EXPIRED: "Expired",
+  REFUNDED: "Refunded",
+};
+export const PAYMENT_TYPE_LABEL: Record<PaymentType, string> = {
+  CHARGE: "Charge",
+  REFUND: "Refund",
+  COD_COLLECTION: "COD collection",
+};

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { orderParamsQuery, type OrderListParams } from "@/lib/admin/orders/params";
+import { invoicesHref, printInvoice } from "../print-invoice";
 
 /**
  * Order Management.png "Order List" header actions. The PNG's green "⊕ Add Order"
@@ -31,10 +32,8 @@ export function OrderHeaderActions({ params }: { params: OrderListParams }) {
           <EllipsisVerticalIcon aria-hidden className="size-5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-56">
-          <DropdownMenuItem asChild>
-            <a href={`/admin/orders/invoices?${query ? `${query}&` : ""}print=1`} target="_blank" rel="noreferrer">
-              <PrinterIcon aria-hidden /> Print invoices (this page)
-            </a>
+          <DropdownMenuItem onSelect={() => printInvoice(invoicesHref(query))}>
+            <PrinterIcon aria-hidden /> Print invoices (this page)
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => router.refresh()}>
             <RefreshCwIcon aria-hidden /> Refresh list

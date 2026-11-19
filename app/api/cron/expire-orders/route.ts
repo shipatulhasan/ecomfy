@@ -1,6 +1,7 @@
-import { timingSafeEqual } from "node:crypto";
 import { connection } from "next/server";
-import { cronSecret } from "@/lib/env";
+import { authorizeCron } from "@/lib/cron";
+import { PENDING_PAYMENT_TTL_MIN } from "@/lib/config/checkout";
+import { reconcileStuck } from "@/lib/payments/reconcile";
 import { expireStale } from "@/lib/payments/state";
 import { pruneRateLimits } from "@/lib/rate-limit";
 import { revalidateTag } from "next/cache";
@@ -14,13 +15,10 @@ import { CacheTags } from "@/lib/cache-tags";
  */
 export async function GET(request: Request) {
   await connection(); // request-time only, never prerendered
-  const secret = cronSecret();
-  const given = request.headers.get("authorization") ?? "";
-  const expected = `Bearer ${secret}`;
-  const ok =
-    secret !== null && given.length === expected.length && timingSafeEqual(Buffer.from(given), Buffer.from(expected));
-  if (!ok) return new Response("Unauthorized", { status: 401 });
+  if (!authorizeCron(request)) return new Response("Unauthorized", { status: 401 });
 
+  // Ask the gateway before expiring: a payment whose callback never arrived is paid, not expired.
+  await reconcileStuck({ olderThanMin: PENDING_PAYMENT_TTL_MIN, limit: 50 }).catch((e) => console.error("[cron] pre-expiry reconcile", e));
   const expired = await expireStale({ limit: 500 });
   await pruneRateLimits().catch(() => {});
   const prices = await syncScheduledPrices().catch((e) => {

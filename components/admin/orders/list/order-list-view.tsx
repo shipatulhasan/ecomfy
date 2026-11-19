@@ -23,6 +23,7 @@ import { formatPrice } from "@/lib/money";
 import type { AdminOrderPage, AdminOrderRow } from "@/lib/queries/admin/orders";
 import { cn } from "@/lib/utils";
 import { FlagBadge, ItemThumb, OrderStatusText, PaymentCell } from "../order-cells";
+import { invoicesHref, printInvoice } from "../print-invoice";
 import { CancelDialog, formatReport, reportToast, ShipDialog } from "../status-dialogs";
 import { useOrderAction } from "../use-order-action";
 import { OrderRowActions, OrderRowActionsSheet } from "./row-actions";
@@ -276,7 +277,7 @@ function BulkBar({ rows, ctx, onClear, onReport }: { rows: AdminOrderRow[]; ctx:
     paid: r.paymentStatus === "PAID",
   }));
   const numbersCsv = rows.map((r) => r.number).join(",");
-  const printHref = `/admin/orders/invoices?n=${numbersCsv}&print=1`;
+  const printHref = invoicesHref(`n=${numbersCsv}`);
   const exportHref = `/admin/orders/export?n=${numbersCsv}`;
 
   const direct = async (to: "PROCESSING" | "DELIVERED") => {
@@ -292,7 +293,7 @@ function BulkBar({ rows, ctx, onClear, onReport }: { rows: AdminOrderRow[]; ctx:
     { key: "ship", label: "Mark shipped", icon: TruckIcon, onClick: () => setDialog("ship"), write: true },
     { key: "deliver", label: "Mark delivered", icon: PackageCheckIcon, onClick: () => direct("DELIVERED"), write: true },
     { key: "cancel", label: "Cancel", icon: BanIcon, onClick: () => setDialog("cancel"), danger: true, write: true },
-    { key: "print", label: "Print invoices", icon: PrinterIcon, href: printHref },
+    { key: "print", label: "Print invoices", icon: PrinterIcon, onClick: () => printInvoice(printHref) },
     { key: "export", label: "Export CSV", icon: DownloadIcon, href: exportHref },
   ];
   const visible = actions.filter((a) => !a.write || ctx.canUpdate);
@@ -319,7 +320,7 @@ function BulkBar({ rows, ctx, onClear, onReport }: { rows: AdminOrderRow[]; ctx:
         {visible.map((a) =>
           a.href ? (
             <Button key={a.key} asChild size="lg" variant="outline" className="h-10 px-4">
-              <a href={a.href} target={a.key === "print" ? "_blank" : undefined} rel="noreferrer" download={a.key === "export" ? true : undefined}>
+              <a href={a.href} download>
                 <a.icon aria-hidden /> {a.label}
               </a>
             </Button>
@@ -359,7 +360,7 @@ function BulkBar({ rows, ctx, onClear, onReport }: { rows: AdminOrderRow[]; ctx:
             return (
               <li key={a.key}>
                 {a.href ? (
-                  <a href={a.href} target={a.key === "print" ? "_blank" : undefined} rel="noreferrer" download={a.key === "export" ? true : undefined} className={cls}>
+                  <a href={a.href} download className={cls}>
                     <a.icon aria-hidden className="size-5" /> {a.label}
                   </a>
                 ) : (

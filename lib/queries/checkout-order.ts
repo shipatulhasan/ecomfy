@@ -38,6 +38,7 @@ export async function getCheckoutOrder(id: string | undefined) {
         select: { id: true, productName: true, variantName: true, imageUrl: true, quantity: true, subtotalCents: true },
       },
       payments: {
+        where: { type: { not: "REFUND" } },
         orderBy: { attempt: "desc" },
         take: 1,
         select: { status: true, trxId: true, bankTranId: true, failReason: true, method: true },

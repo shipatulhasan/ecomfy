@@ -4,9 +4,9 @@ import { Suspense } from "react";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { allowedNavHrefs } from "@/lib/admin/nav";
-import { ROLE_LABELS, type Role } from "@/lib/auth/permissions";
+import { can, ROLE_LABELS, type Role } from "@/lib/auth/permissions";
 import { requireStaff } from "@/lib/auth-guards";
-import { getAdminBadgeCounts } from "@/lib/queries/admin/counts";
+import { getAdminBadgeCounts, getPaymentsAttentionCount } from "@/lib/queries/admin/counts";
 import { AdminSidebar } from "./admin-sidebar";
 import { CommandSearch } from "./command-search";
 import { Notifications } from "./notifications";
@@ -21,7 +21,11 @@ import { UserMenu } from "./user-menu";
  */
 export async function AdminShell({ children }: { children: React.ReactNode }) {
   const user = await requireStaff();
-  const [jar, counts] = await Promise.all([cookies(), getAdminBadgeCounts()]);
+  const [jar, counts, paymentsAttention] = await Promise.all([
+    cookies(),
+    getAdminBadgeCounts(),
+    can(user, "payments:read") ? getPaymentsAttentionCount() : 0,
+  ]);
   // shadcn Sidebar writes this cookie on toggle; reading it here avoids a flash.
   const defaultOpen = jar.get("sidebar_state")?.value !== "false";
   const allowed = allowedNavHrefs(user);
@@ -36,7 +40,7 @@ export async function AdminShell({ children }: { children: React.ReactNode }) {
         } as React.CSSProperties
       }
     >
-      <AdminSidebar allowed={allowed} badges={{ pendingOrders: counts.pendingOrders }} />
+      <AdminSidebar allowed={allowed} badges={{ pendingOrders: counts.pendingOrders, paymentsAttention }} />
       <SidebarInset className="min-w-0 bg-background">
         <header className="sticky top-0 z-5 border-b border-border bg-muted">
           <div className="flex h-16 items-center gap-3 px-gutter laptop:h-admin-topbar laptop:gap-8">

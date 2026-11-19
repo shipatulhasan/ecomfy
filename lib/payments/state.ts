@@ -176,29 +176,42 @@ export async function appendPaymentLog(paymentId: string, ...entries: (LogEntry 
 export async function createAttempt(tx: Tx, orderId: string, method: PaymentMethod, amountCents: number) {
   const order = await tx.order.findUniqueOrThrow({
     where: { id: orderId },
-    select: { orderNumber: true, _count: { select: { payments: true } } },
+    select: { orderNumber: true, userId: true },
   });
   await tx.payment.updateMany({
-    where: { orderId, status: { in: [...OPEN_ATTEMPT] } },
+    where: { orderId, type: { not: "REFUND" }, status: { in: [...OPEN_ATTEMPT] } },
     data: { status: "CANCELLED", failReason: "Superseded by a new attempt" },
   });
-  const attempt = order._count.payments + 1;
-  return tx.payment.create({
+  // Refund rows have no attempt number, so take the highest one, not the row count.
+  const last = await tx.payment.aggregate({ where: { orderId }, _max: { attempt: true } });
+  const attempt = (last._max.attempt ?? 0) + 1;
+  const row = await tx.payment.create({
     data: {
       orderId,
+      userId: order.userId,
+      type: method === "COD" ? "COD_COLLECTION" : "CHARGE",
       method,
       attempt,
       reference: paymentReference(order.orderNumber, attempt),
       amountCents,
       status: method === "COD" ? "PENDING" : "INITIATED",
     },
-    select: { id: true, reference: true, attempt: true, amountCents: true },
+    select: { id: true, reference: true, amountCents: true },
   });
+  return { ...row, attempt };
 }
 
 // ───────────────────────────── outcomes ─────────────────────────────
 
-type GatewayIds = { trxId?: string | null; valId?: string | null; bankTranId?: string | null };
+export type GatewayIds = {
+  trxId?: string | null;
+  valId?: string | null;
+  bankTranId?: string | null;
+  /** Gateway fee, when the gateway reports one (SSLCommerz amount − store_amount). */
+  feeCents?: number | null;
+  cardBrand?: string | null;
+  cardIssuer?: string | null;
+};
 
 /** Payment confirmed by the gateway (after server-side verification). Idempotent. */
 export async function markPaid(reference: string, ids: GatewayIds, tag: string, log: LogEntry[] = []): Promise<CallbackResult> {
@@ -216,7 +229,8 @@ export async function markPaid(reference: string, ids: GatewayIds, tag: string, 
     if (!payment) return { outcome: "invalid", orderId: null, reason: "Unknown transaction" } as CallbackResult;
 
     const claimed = await tx.payment.updateMany({
-      where: { id: payment.id, status: { not: "SUCCEEDED" } },
+      // REFUNDED is a settled charge that was paid back: never re-open it.
+      where: { id: payment.id, status: { notIn: ["SUCCEEDED", "REFUNDED"] } },
       data: { status: "SUCCEEDED", completedAt: new Date(), failReason: null, ...ids },
     });
     if (claimed.count !== 1) return { outcome: "noop", orderId: payment.orderId, paid: true } as CallbackResult;

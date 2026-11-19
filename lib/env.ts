@@ -93,5 +93,7 @@ export const sslczEnv = once(() => {
     isLive: env.SSLCZ_IS_LIVE,
     sessionUrl: `${host}/gwprocess/v4/api.php`,
     validationUrl: `${host}/validator/api/validationserverAPI.php`,
+    /** Transaction Query API by tran_id (reconciliation). */
+    transactionQueryUrl: `${host}/validator/api/merchantTransIDvalidationAPI.php`,
   };
 });

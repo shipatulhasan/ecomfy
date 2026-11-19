@@ -4,7 +4,7 @@ import { gatewayCallbackUrl, bkashEnv } from "@/lib/env";
 import { fromTaka, toTakaString } from "@/lib/money";
 import { paymentLog, paymentWarn, type LogEntry } from "./log";
 import { appendPaymentLog, markFailed, markPaid, recordGatewaySession } from "./state";
-import type { CallbackResult, PaymentProvider } from "./types";
+import type { CallbackResult, GatewayAnswer, PaymentProvider } from "./types";
 
 /**
  * bKash Tokenized Checkout, direct (never through SSLCommerz).
@@ -136,7 +136,8 @@ async function executePayment(paymentId: string) {
   return authed("/payment/execute", { paymentId, paymentID: paymentId }, executeTimeout());
 }
 
-async function queryPayment(paymentId: string) {
+/** Query API: the payment's current state at bKash (callbacks, reconciliation). */
+export async function queryPayment(paymentId: string) {
   return authed("/query/payment", { paymentId, paymentID: paymentId });
 }
 
@@ -243,4 +244,25 @@ export async function handleBkashCallback(params: URLSearchParams): Promise<Call
     return markFailed(attempt.reference, "failed", "bKash amount or invoice mismatch", TAG, log);
   }
   return markPaid(attempt.reference, { trxId: pick(result, "trxId", "trxID") ?? null }, TAG, log);
+}
+
+/** Reconciliation: what bKash says about this payment now (Query API). */
+export async function bkashGatewayAnswer(paymentId: string): Promise<GatewayAnswer> {
+  const q = await queryPayment(paymentId);
+  const err = errorOf(q);
+  const tx = pick(q, "transactionStatus") ?? "";
+  const amount = pick(q, "amount");
+  const base = {
+    status: err ?? (tx || "unknown"),
+    amountCents: amount ? fromTaka(amount) : null,
+    currency: pick(q, "currency") ?? null,
+    reference: pick(q, "merchantInvoiceNumber", "merchantInvoice") ?? null,
+    ids: { trxId: pick(q, "trxId", "trxID") ?? null },
+    response: q,
+  };
+  if (err) return { ...base, state: "unknown" };
+  if (tx === "Completed") return { ...base, state: "paid" };
+  if (tx === "Initiated") return { ...base, state: "pending", abandoned: true };
+  if (/^(Cancelled|Failed|Expired|Declined)$/i.test(tx)) return { ...base, state: "failed" };
+  return { ...base, state: "pending" };
 }

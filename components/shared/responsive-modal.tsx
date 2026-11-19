@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils";
 
 /**
  * A form modal: a full-height bottom sheet below laptop and a centered dialog
- * from laptop up. One Radix Dialog styled per layer with CSS (no width
+ * from laptop up (`placement="right"`: a full-height right side sheet instead,
+ * for URL-driven detail panels like the admin Transaction sheet). One Radix Dialog styled per layer with CSS (no width
  * detection, CLAUDE.md), so URL-driven opening (?edit=…) works on a fresh load.
  *
  * The header and footer stay put; only the body scrolls (laptop+: the dialog
@@ -20,8 +21,10 @@ export function ResponsiveModal({
   description,
   footer,
   className,
+  placement = "center",
   children,
 }: {
+  placement?: "center" | "right";
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: React.ReactNode;
@@ -45,9 +48,17 @@ export function ResponsiveModal({
             // Below laptop: full-height bottom sheet (rounded top, clears the status bar).
             "inset-x-0 bottom-0 h-[calc(100dvh-env(safe-area-inset-top)-0.75rem)] rounded-t-2xl duration-200",
             "data-open:animate-in data-open:slide-in-from-bottom-10 data-open:fade-in-0 data-closed:animate-out data-closed:slide-out-to-bottom-10 data-closed:fade-out-0",
-            // Laptop+: centered dialog.
-            "laptop:inset-auto laptop:top-1/2 laptop:left-1/2 laptop:h-auto laptop:max-h-[80dvh] laptop:w-[calc(100%-4rem)] laptop:-translate-x-1/2 laptop:-translate-y-1/2 laptop:rounded-xl",
-            "laptop:data-open:slide-in-from-bottom-0 laptop:data-open:zoom-in-95 laptop:data-closed:slide-out-to-bottom-0 laptop:data-closed:zoom-out-95",
+            placement === "center"
+              ? [
+                  // Laptop+: centered dialog.
+                  "laptop:inset-auto laptop:top-1/2 laptop:left-1/2 laptop:h-auto laptop:max-h-[80dvh] laptop:w-[calc(100%-4rem)] laptop:-translate-x-1/2 laptop:-translate-y-1/2 laptop:rounded-xl",
+                  "laptop:data-open:slide-in-from-bottom-0 laptop:data-open:zoom-in-95 laptop:data-closed:slide-out-to-bottom-0 laptop:data-closed:zoom-out-95",
+                ]
+              : [
+                  // Laptop+: full-height right side sheet.
+                  "laptop:inset-y-0 laptop:right-0 laptop:left-auto laptop:h-full laptop:w-full laptop:rounded-none laptop:border-l laptop:border-border",
+                  "laptop:data-open:slide-in-from-bottom-0 laptop:data-open:slide-in-from-right-10 laptop:data-closed:slide-out-to-bottom-0 laptop:data-closed:slide-out-to-right-10",
+                ],
             className,
           )}
         >

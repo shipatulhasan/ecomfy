@@ -36,6 +36,32 @@ export type CallbackResult = {
   reason?: string;
 };
 
+/**
+ * A gateway's own answer about one attempt (reconciliation, lib/payments/reconcile.ts).
+ * `abandoned`: the customer never got past the payment page (bKash "Initiated",
+ * SSLCommerz no transaction / UNATTEMPTED); only final once the attempt is old.
+ */
+export type GatewayAnswer = {
+  state: "paid" | "failed" | "pending" | "unknown";
+  abandoned?: boolean;
+  /** Gateway's status text, for the audit log and the toast. */
+  status: string;
+  amountCents: number | null;
+  currency: string | null;
+  /** Our reference as the gateway echoes it (tran_id / merchantInvoiceNumber). */
+  reference: string | null;
+  ids: {
+    trxId?: string | null;
+    valId?: string | null;
+    bankTranId?: string | null;
+    feeCents?: number | null;
+    cardBrand?: string | null;
+    cardIssuer?: string | null;
+  };
+  /** Redacted response, appended to Payment.raw. */
+  response: Record<string, unknown>;
+};
+
 export interface PaymentProvider {
   method: PaymentMethod;
   /** Log tag: "[bkash]", "[sslcz]", "[cod]". */

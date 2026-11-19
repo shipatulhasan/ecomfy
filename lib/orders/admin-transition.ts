@@ -1,6 +1,7 @@
 import "server-only";
 import { logAudit } from "@/lib/audit";
 import { trackingUrlFor, type StoreSettings } from "@/lib/checkout/settings";
+import { paymentReference } from "@/lib/config/checkout";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import type { OrderStatus, PaymentMethod, PaymentStatus, StockState } from "@/lib/generated/prisma/enums";
 import { recordStatus } from "@/lib/orders/history";
@@ -47,6 +48,9 @@ export const transitionSelect = {
   deliveredAt: true,
   courier: true,
   trackingNumber: true,
+  userId: true,
+  totalCents: true,
+  currency: true,
 } satisfies Prisma.OrderSelect;
 
 export type TransitionOrder = {
@@ -61,6 +65,9 @@ export type TransitionOrder = {
   deliveredAt: Date | null;
   courier: string | null;
   trackingNumber: string | null;
+  userId: string | null;
+  totalCents: number;
+  currency: string;
 };
 
 export type TransitionInput = {
@@ -129,15 +136,17 @@ export async function transitionOrder(
     await commitStock(tx, order.id, "[admin]");
   }
   if (to === "DELIVERED" && order.paymentMethod === "COD") {
-    await tx.payment.updateMany({
-      where: { orderId: order.id, method: "COD", status: { in: ["INITIATED", "PENDING"] } },
+    const collected = await tx.payment.updateMany({
+      where: { orderId: order.id, method: "COD", type: "COD_COLLECTION", status: { in: ["INITIATED", "PENDING"] } },
       data: { status: "SUCCEEDED", completedAt: now },
     });
+    // Older orders (or a superseded row) may have no open COD row: the cash still goes in the ledger.
+    if (collected.count === 0 && cashCollected) await recordCodCollection(tx, order, now);
   }
   if (to === "CANCELLED" || to === "RETURNED") {
     await returnStock(tx, order.id);
     await tx.payment.updateMany({
-      where: { orderId: order.id, status: { in: ["INITIATED", "PENDING"] } },
+      where: { orderId: order.id, type: { not: "REFUND" }, status: { in: ["INITIATED", "PENDING"] } },
       data: { status: "CANCELLED", failReason: "Order cancelled by staff", completedAt: now },
     });
   }
@@ -162,4 +171,24 @@ export async function transitionOrder(
   );
 
   return { email: emailKindFor(to) };
+}
+
+/** A SUCCEEDED COD_COLLECTION row for cash taken on delivery (next attempt number). */
+async function recordCodCollection(tx: Tx, order: TransitionOrder, at: Date) {
+  const last = await tx.payment.aggregate({ where: { orderId: order.id }, _max: { attempt: true } });
+  const attempt = (last._max.attempt ?? 0) + 1;
+  await tx.payment.create({
+    data: {
+      orderId: order.id,
+      userId: order.userId,
+      type: "COD_COLLECTION",
+      method: "COD",
+      attempt,
+      reference: paymentReference(order.orderNumber, attempt),
+      amountCents: order.totalCents,
+      currency: order.currency,
+      status: "SUCCEEDED",
+      completedAt: at,
+    },
+  });
 }

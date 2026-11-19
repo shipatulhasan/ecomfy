@@ -5,7 +5,7 @@ import { gatewayCallbackUrl, sslczEnv } from "@/lib/env";
 import { fromTaka, toTakaString } from "@/lib/money";
 import { paymentLog, paymentWarn, type LogEntry } from "./log";
 import { appendPaymentLog, markFailed, markPaid, recordGatewaySession } from "./state";
-import type { CallbackResult, PaymentProvider } from "./types";
+import type { CallbackResult, GatewayAnswer, PaymentProvider } from "./types";
 
 /**
  * SSLCommerz v4: cards and online banking (bKash is offered directly, so it's
@@ -138,6 +138,36 @@ async function validate(valId: string): Promise<Record<string, unknown>> {
   return (await res.json()) as Record<string, unknown>;
 }
 
+/**
+ * Transaction Query API by tran_id (reconciliation, lib/payments/reconcile.ts):
+ *   GET {host}/validator/api/merchantTransIDvalidationAPI.php?tran_id&store_id&store_passwd&format=json
+ *   → { APIConnect: "DONE", no_of_trans_found, element: [{ status, val_id, amount, store_amount, … }] }
+ */
+export async function queryByTranId(tranId: string): Promise<Record<string, unknown>> {
+  const env = sslczEnv();
+  const url = new URL(env.transactionQueryUrl);
+  url.search = new URLSearchParams({
+    tran_id: tranId,
+    store_id: env.storeId,
+    store_passwd: env.storePassword,
+    format: "json",
+  }).toString();
+  const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), cache: "no-store" });
+  return (await res.json()) as Record<string, unknown>;
+}
+
+/** Fee + card details from a validation / query element (stored on the Payment row). */
+export function sslczExtras(v: Record<string, unknown>) {
+  const amount = fromTaka(str(v.amount));
+  const net = fromTaka(str(v.store_amount));
+  const fee = Number.isFinite(amount) && Number.isFinite(net) && amount >= net ? amount - net : null;
+  return {
+    feeCents: fee,
+    cardBrand: str(v.card_brand) || str(v.card_type) || null,
+    cardIssuer: str(v.card_issuer) || null,
+  };
+}
+
 export type SslczKind = "success" | "fail" | "cancel" | "ipn";
 
 /**
@@ -224,6 +254,8 @@ export async function handleSslczCallback(kind: SslczKind, fields: Fields): Prom
       store_amount: v.store_amount,
       bank_tran_id: v.bank_tran_id,
       card_type: v.card_type,
+      card_brand: v.card_brand,
+      card_issuer: v.card_issuer,
       risk_level: v.risk_level,
       risk_title: v.risk_title,
     }),
@@ -245,5 +277,50 @@ export async function handleSslczCallback(kind: SslczKind, fields: Fields): Prom
   }
   if (str(v.risk_level) === "1") log.push(paymentWarn(TAG, "risky", { risk_title: v.risk_title, action: "review before shipping" }));
 
-  return markPaid(attempt.reference, { valId, bankTranId: str(v.bank_tran_id) || null }, TAG, log);
+  return markPaid(attempt.reference, { valId, bankTranId: str(v.bank_tran_id) || null, ...sslczExtras(v) }, TAG, log);
+}
+
+/** Reconciliation: what SSLCommerz says about this tran_id now (Transaction Query API). */
+export async function sslczGatewayAnswer(tranId: string): Promise<GatewayAnswer> {
+  const json = await queryByTranId(tranId);
+  const elements = Array.isArray(json.element) ? (json.element as Record<string, unknown>[]) : [];
+  const response = {
+    APIConnect: json.APIConnect,
+    no_of_trans_found: json.no_of_trans_found,
+    element: elements.map((e) => ({
+      status: e.status,
+      tran_id: e.tran_id,
+      val_id: e.val_id,
+      amount: e.amount,
+      store_amount: e.store_amount,
+      currency: e.currency,
+      currency_type: e.currency_type,
+      currency_amount: e.currency_amount,
+      bank_tran_id: e.bank_tran_id,
+      card_type: e.card_type,
+      card_brand: e.card_brand,
+      card_issuer: e.card_issuer,
+      tran_date: e.tran_date,
+      risk_level: e.risk_level,
+    })),
+  };
+  const empty = { amountCents: null, currency: null, reference: null, ids: {}, response };
+  if (str(json.APIConnect) !== "DONE") return { ...empty, state: "unknown", status: str(json.APIConnect) || "no answer" };
+  if (!elements.length) return { ...empty, state: "pending", abandoned: true, status: "no transaction" };
+
+  const valid = elements.find((e) => str(e.status) === "VALID" || str(e.status) === "VALIDATED");
+  const e = valid ?? elements[0] ?? {};
+  const status = str(e.status);
+  const answer = {
+    status,
+    amountCents: fromTaka(str(e.currency_amount) || str(e.amount)),
+    currency: str(e.currency_type) || str(e.currency) || null,
+    reference: str(e.tran_id) || null,
+    ids: { valId: str(e.val_id) || null, bankTranId: str(e.bank_tran_id) || null, ...sslczExtras(e) },
+    response,
+  };
+  if (valid) return { ...answer, state: "paid" };
+  if (/^(FAILED|CANCELLED|EXPIRED|INVALID_TRANSACTION)$/.test(status)) return { ...answer, state: "failed" };
+  if (status === "UNATTEMPTED") return { ...answer, state: "pending", abandoned: true };
+  return { ...answer, state: "pending" };
 }

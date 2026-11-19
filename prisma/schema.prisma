@@ -84,6 +84,14 @@ enum PaymentAttemptStatus {
   FAILED
   CANCELLED
   EXPIRED
+  REFUNDED // a SUCCEEDED charge fully refunded later (admin Transactions)
+}
+
+/// Kind of money movement in the Payment ledger (admin Transactions).
+enum PaymentType {
+  CHARGE // online gateway attempt (bKash / SSLCommerz)
+  REFUND // amountCents is negative; one per Refund row
+  COD_COLLECTION // cash collected on delivery
 }
 
 /// Stock held by an order: RESERVED (Variant.reserved) → COMMITTED (stock decremented) or RELEASED.
@@ -125,6 +133,7 @@ model User {
   auditLogs   AuditLog[]
   orderEvents OrderStatusHistory[]
   refunds     Refund[]
+  payments    Payment[]
   invitesSent AdminInvite[] @relation("InvitedBy")
   media       Media[]
 
@@ -519,10 +528,17 @@ model Payment {
   id          String               @id @default(cuid())
   orderId     String
   order       Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  /// Customer (denormalised from the order for Transactions search/filters).
+  userId      String?
+  user        User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  type        PaymentType          @default(CHARGE)
   method      PaymentMethod
-  attempt     Int
-  /// Gateway transaction id: orderNumber for attempt 1, `${orderNumber}-${attempt}` after.
+  /// Gateway attempt number; null for REFUND rows.
+  attempt     Int?
+  /// Gateway transaction id: orderNumber for attempt 1, `${orderNumber}-${attempt}` after,
+  /// `${orderNumber}-R${n}` for refunds.
   reference   String               @unique
+  /// Negative for REFUND rows.
   amountCents Int
   currency    String               @default("BDT")
   status      PaymentAttemptStatus @default(INITIATED)
@@ -531,15 +547,26 @@ model Payment {
   sessionKey  String? // SSLCommerz sessionkey
   valId       String? // SSLCommerz val_id
   bankTranId  String? // SSLCommerz bank_tran_id
+  /// Gateway fee when returned (SSLCommerz amount − store_amount).
+  feeCents    Int?
+  cardBrand   String? // SSLCommerz card_brand
+  cardIssuer  String? // SSLCommerz card_issuer
   failReason  String?
   /// Redacted gateway request/response log (lib/payments/log.ts).
   raw         Json                 @default("[]")
+  /// When the gateway settled it ("processed at").
   completedAt DateTime?
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
+  refund      Refund?
 
   @@unique([orderId, attempt])
   @@index([orderId])
+  @@index([status, createdAt])
+  @@index([method])
+  @@index([type])
+  @@index([createdAt])
+  @@index([userId])
 }
 
 /// Every status change of an order (Order Details tracker dates). Written by checkout,
@@ -572,6 +599,9 @@ model Refund {
   note        String?
   actorId     String?
   actor       User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  /// Its REFUND row in the Payment ledger.
+  paymentId   String?  @unique
+  payment     Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
 
   @@index([orderId])

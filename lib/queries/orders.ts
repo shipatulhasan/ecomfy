@@ -192,7 +192,7 @@ export async function getUserOrder(userId: string, number: number): Promise<Orde
         select: { status: true, note: true, createdAt: true },
       },
       payments: {
-        where: { status: "SUCCEEDED" },
+        where: { type: { not: "REFUND" }, status: { in: ["SUCCEEDED", "REFUNDED"] } },
         orderBy: { attempt: "desc" },
         take: 1,
         select: { trxId: true, bankTranId: true },

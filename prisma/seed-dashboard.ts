@@ -10,6 +10,11 @@
  * earlier cancelled COD orders), orders with several payment attempts, courier +
  * tracking on shipped orders, staff actors on admin steps, and manual refunds.
  *
+ * Transactions coverage (Payment ledger): every row has a type (CHARGE / COD_COLLECTION
+ * / REFUND, refunds negative and linked to their Refund), failed attempts before a
+ * success, gateway fee + card on SSLCommerz successes, and one fixture per
+ * "needs attention" rule (lib/payments/attention.ts).
+ *
  * Inserted with createMany in batches (orders, items, payments, history, refunds).
  */
 import { randomUUID } from "node:crypto";
@@ -114,11 +119,17 @@ export async function seedDashboard(
   const whoOf = (c: (typeof customers)[number]): Who => ({ name: c.name, email: c.email, phone: c.phone, district: c.district, userId: c.id });
 
   /** One order with everything that goes with its status (items, attempts, history, shipping, refunds). */
-  function add(createdAt: Date, method: Method, status: Status, who: Who, o: { retries?: number; refund?: boolean; cancelReason?: string } = {}) {
+  function add(
+    createdAt: Date,
+    method: Method,
+    status: Status,
+    who: Who,
+    o: { retries?: number; refund?: boolean; cancelReason?: string; paidNoRefund?: boolean } = {},
+  ) {
     const ageH = (now - createdAt.getTime()) / 3_600_000;
     const open = status === "PENDING_PAYMENT" || status === "PENDING_CONFIRMATION";
     const paid =
-      (method !== "COD" && (status === "PROCESSING" || status === "SHIPPED" || status === "DELIVERED" || status === "RETURNED" || (status === "CANCELLED" && !!o.refund))) ||
+      (method !== "COD" && (status === "PROCESSING" || status === "SHIPPED" || status === "DELIVERED" || status === "RETURNED" || (status === "CANCELLED" && (!!o.refund || !!o.paidNoRefund)))) ||
       (method === "COD" && (status === "DELIVERED" || status === "RETURNED"));
     const paidAt = paid
       ? new Date(Math.min(createdAt.getTime() + (method === "COD" ? int(30, 60) * 3_600_000 : int(1, 8) * 60_000), now - 60_000))
@@ -217,6 +228,8 @@ export async function seedDashboard(
       payments.push({
         id: randomUUID(),
         orderId: id,
+        userId: who.userId,
+        type: "CHARGE",
         method,
         attempt: a,
         reference: a === 1 ? orderNumber : `${orderNumber}-${a}`,
@@ -230,14 +243,19 @@ export async function seedDashboard(
       });
     }
     const last = retries + 1;
-    payments.push({
+    const sslPaid = paid && method === "SSLCOMMERZ";
+    const finalPayment = {
       id: randomUUID(),
       orderId: id,
+      userId: who.userId,
+      type: method === "COD" ? "COD_COLLECTION" : "CHARGE",
       method,
       attempt: last,
       reference: last === 1 ? orderNumber : `${orderNumber}-${last}`,
       amountCents: total,
-      status: paid
+      status: refunded
+        ? "REFUNDED"
+        : paid
         ? "SUCCEEDED"
         : status === "CANCELLED"
           ? "CANCELLED"
@@ -249,22 +267,44 @@ export async function seedDashboard(
                 ? "PENDING"
                 : "INITIATED",
       trxId: paid && method === "BKASH" ? `SEED${number}` : null,
-      bankTranId: paid && method === "SSLCOMMERZ" ? `SEEDBANK${number}` : null,
+      bankTranId: sslPaid ? `SEEDBANK${number}` : null,
+      valId: sslPaid ? `SEEDVAL${number}` : null,
+      // SSLCommerz reports its fee (amount − store_amount) and the card used.
+      feeCents: sslPaid ? Math.round(total * 0.025) : null,
+      cardBrand: sslPaid ? pick(["VISA", "MASTERCARD", "AMEX"]) : null,
+      cardIssuer: sslPaid ? pick(["BRAC Bank", "City Bank", "Dutch-Bangla Bank", "Eastern Bank"]) : null,
       failReason: status === "FAILED" ? "Payment declined" : null,
-      completedAt: paidAt,
+      completedAt: paidAt ?? (status === "CANCELLED" || status === "FAILED" || status === "EXPIRED" ? (steps.at(-1)?.createdAt ?? null) : null),
       raw: paid && method !== "COD" ? [{ at: (paidAt ?? createdAt).toISOString(), tag: method === "BKASH" ? "[bkash]" : "[sslcommerz]", event: "mark-paid:paid" }] : [],
       createdAt: new Date(Math.min(createdAt.getTime() + retries * 4 * 60_000, now - 60_000)),
-    });
+    } satisfies Prisma.PaymentCreateManyInput;
+    payments.push(finalPayment);
 
     for (const h of steps) history.push({ id: randomUUID(), orderId: id, ...h });
     if (refunded) {
       const at = new Date(Math.min((steps.at(-1)?.createdAt ?? createdAt).getTime() + 3 * 3_600_000, now - 30_000));
       const actorId = pick(staff);
-      refunds.push({ id: randomUUID(), orderId: id, amountCents: total, note: `Refunded via ${method === "BKASH" ? "bKash" : "bank transfer"} (seed)`, actorId, createdAt: at });
+      // Ledger row (negative) + the Refund that points to it.
+      const paymentId = randomUUID();
+      payments.push({
+        id: paymentId,
+        orderId: id,
+        userId: who.userId,
+        type: "REFUND",
+        method,
+        attempt: null,
+        reference: `${orderNumber}-R1`,
+        amountCents: -total,
+        status: "SUCCEEDED",
+        completedAt: at,
+        createdAt: at,
+      });
+      refunds.push({ id: randomUUID(), orderId: id, amountCents: total, note: `Refunded via ${method === "BKASH" ? "bKash" : "bank transfer"} (seed)`, actorId, paymentId, createdAt: at });
       history.push({ id: randomUUID(), orderId: id, status: null, internal: true, actor: "admin", actorId, note: `Refunded ৳${(total / 100).toFixed(2)} (full)`, createdAt: at });
     }
     if (ageH < 0) throw new Error("order in the future");
     number++;
+    return { id, total, orderNumber, finalPayment };
   }
 
   for (let day = DAYS - 1; day >= 0; day--) {
@@ -347,6 +387,30 @@ export async function seedDashboard(
   // Flagged COD orders waiting for confirmation right now (risky phones).
   for (const c of risky.slice(0, 2)) add(new Date(now - int(20, 200) * 60_000), "COD", "PENDING_CONFIRMATION", whoOf(c));
 
+  // "Needs attention" fixtures (lib/payments/attention.ts), one per rule.
+  {
+    // 1. A bKash attempt still PENDING 2 hours later (the callback never arrived).
+    const stuck = add(new Date(now - 120 * 60_000), "BKASH", "PENDING_PAYMENT", randomWho());
+    Object.assign(stuck.finalPayment, { status: "PENDING", paymentId: `SEEDPAY${stuck.orderNumber}` });
+    // 2. Paid by bKash, then cancelled by staff, and not refunded yet.
+    add(new Date(now - 26 * 3_600_000), "BKASH", "CANCELLED", randomWho(), { paidNoRefund: true, cancelReason: "Out of stock" });
+    // 3. SSLCommerz charged ৳50 less than the order total.
+    const short = add(new Date(now - 9 * 3_600_000), "SSLCOMMERZ", "PROCESSING", randomWho());
+    short.finalPayment.amountCents = short.total - 5000;
+    // 4. Two successful bKash charges for one order (double tap / retried callback).
+    const dup = add(new Date(now - 5 * 3_600_000), "BKASH", "PROCESSING", randomWho());
+    const at = new Date((dup.finalPayment.completedAt ?? new Date(now - 4 * 3_600_000)).getTime() + 40_000);
+    payments.push({
+      ...dup.finalPayment,
+      id: randomUUID(),
+      attempt: (dup.finalPayment.attempt ?? 1) + 1,
+      reference: `${dup.orderNumber}-${(dup.finalPayment.attempt ?? 1) + 1}`,
+      trxId: `SEEDDUP${dup.orderNumber.slice(-5)}`,
+      completedAt: at,
+      createdAt: new Date(at.getTime() - 60_000),
+    });
+  }
+
   const chunk = <T>(xs: T[], n = 500) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
   for (const c of chunk(orders)) await prisma.order.createMany({ data: c });
   for (const c of chunk(items)) await prisma.orderItem.createMany({ data: c });
@@ -360,7 +424,7 @@ export async function seedDashboard(
     customers: customers.length,
     orders: orders.length,
     flagged: orders.filter((o) => o.codFlagged).length,
-    multiAttempt: new Set(payments.filter((p) => p.attempt > 1).map((p) => p.orderId)).size,
+    multiAttempt: new Set(payments.filter((p) => (p.attempt ?? 0) > 1).map((p) => p.orderId)).size,
     refunds: refunds.length,
   };
 }

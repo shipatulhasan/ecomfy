@@ -104,10 +104,10 @@ function toRow(o: RowSource): AdminOrderRow {
   };
 }
 
-const like = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+export const like = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
 /** Bangladesh phone digits as stored (01XXXXXXXXX), from "+880 17…", "017-…", … */
-function phoneDigits(q: string): string | null {
+export function phoneDigits(q: string): string | null {
   let d = q.replace(/\D/g, "");
   if (d.startsWith("880")) d = d.slice(2);
   return d.length >= 4 ? d : null;
@@ -392,7 +392,7 @@ export async function getAdminOrderDetail(number: number): Promise<AdminOrderDet
         include: { variant: { select: { sku: true, productId: true } } },
       },
       history: { orderBy: { createdAt: "asc" }, include: { actorUser: { select: { name: true } } } },
-      payments: { orderBy: { attempt: "asc" } },
+      payments: { where: { type: { not: "REFUND" } }, orderBy: { attempt: "asc" } },
       refunds: { orderBy: { createdAt: "asc" }, include: { actor: { select: { name: true } } } },
     },
   });
@@ -475,7 +475,7 @@ export async function getAdminOrderDetail(number: number): Promise<AdminOrderDet
     })),
     payments: o.payments.map((p) => ({
       id: p.id,
-      attempt: p.attempt,
+      attempt: p.attempt ?? 0,
       method: p.method,
       reference: p.reference,
       amountCents: p.amountCents,
@@ -541,7 +541,7 @@ export async function getOrdersForInvoice(numbers: number[]): Promise<InvoiceDat
       shippingCents: true,
       codFeeCents: true,
       totalCents: true,
-      payments: { where: { status: "SUCCEEDED" }, orderBy: { attempt: "desc" }, take: 1, select: { trxId: true, bankTranId: true } },
+      payments: { where: { type: { not: "REFUND" }, status: { in: ["SUCCEEDED", "REFUNDED"] } }, orderBy: { attempt: "desc" }, take: 1, select: { trxId: true, bankTranId: true } },
       items: {
         orderBy: { id: "asc" },
         select: { id: true, productName: true, variantName: true, unitPriceCents: true, quantity: true, subtotalCents: true },

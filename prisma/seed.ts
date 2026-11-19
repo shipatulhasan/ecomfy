@@ -518,6 +518,8 @@ async function main() {
         history: { create: statusTimeline(status, opts.paymentMethod!, createdAt) },
         payments: {
           create: {
+            userId: u[opts.userKey]!,
+            type: opts.paymentMethod === "COD" ? "COD_COLLECTION" : "CHARGE",
             method: opts.paymentMethod!,
             attempt: 1,
             reference: orderNumber,
